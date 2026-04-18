@@ -1,0 +1,10 @@
+{
+  "name": "pi-extensions",
+  "private": true,
+  "workspaces": [
+    "*"
+  ],
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}
