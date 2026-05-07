@@ -60,17 +60,31 @@
  * Linux also requires: bubblewrap, socat, ripgrep
  */
 
+import type {
+  AgentToolResult,
+  ExtensionAPI,
+  ExtensionContext,
+} from "@mariozechner/pi-coding-agent";
+
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { SandboxManager, type SandboxRuntimeConfig } from "@carderne/sandbox-runtime";
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { basename, dirname, join, resolve } from "node:path";
+
+import {
+  SandboxManager,
+  type SandboxAskCallback,
+  type SandboxRuntimeConfig,
+} from "@carderne/sandbox-runtime";
 import {
   type BashOperations,
-  createBashTool,
+  createBashToolDefinition,
+  getAgentDir,
+  getShellConfig,
   isToolCallEventType,
+  SettingsManager,
 } from "@mariozechner/pi-coding-agent";
+import { matchesKey, Key, truncateToWidth } from "@mariozechner/pi-tui";
 
 interface SandboxConfig extends SandboxRuntimeConfig {
   enabled?: boolean;
@@ -103,7 +117,7 @@ const DEFAULT_CONFIG: SandboxConfig = {
 
 function loadConfig(cwd: string): SandboxConfig {
   const projectConfigPath = join(cwd, ".pi", "sandbox.json");
-  const globalConfigPath = join(homedir(), ".pi", "agent", "sandbox.json");
+  const globalConfigPath = join(getAgentDir(), "sandbox.json");
 
   let globalConfig: Partial<SandboxConfig> = {};
   let projectConfig: Partial<SandboxConfig> = {};
@@ -164,6 +178,15 @@ function deepMerge(base: SandboxConfig, overrides: Partial<SandboxConfig>): Sand
 
 // ── Domain helpers ────────────────────────────────────────────────────────────
 
+export function shouldPromptForWrite(
+  path: string,
+  allowWrite: string[],
+  matchesPattern: (path: string, patterns: string[]) => boolean,
+): boolean {
+  // Secure default: empty allowWrite means deny-all writes (prompt every path).
+  return allowWrite.length === 0 || !matchesPattern(path, allowWrite);
+}
+
 function extractDomainsFromCommand(command: string): string[] {
   const urlRegex = /https?:\/\/([a-zA-Z0-9][a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
   const domains = new Set<string>();
@@ -175,6 +198,7 @@ function extractDomainsFromCommand(command: string): string[] {
 }
 
 function domainMatchesPattern(domain: string, pattern: string): boolean {
+  if (pattern === "*") return true;
   if (pattern.startsWith("*.")) {
     const base = pattern.slice(2);
     return domain === base || domain.endsWith("." + base);
@@ -182,31 +206,68 @@ function domainMatchesPattern(domain: string, pattern: string): boolean {
   return domain === pattern;
 }
 
+function allowsAllDomains(allowedDomains: string[] | undefined): boolean {
+  return allowedDomains?.includes("*") ?? false;
+}
+
 function domainIsAllowed(domain: string, allowedDomains: string[]): boolean {
   return allowedDomains.some((p) => domainMatchesPattern(domain, p));
+}
+
+function createNetworkAskCallback(allowedDomains: string[]): SandboxAskCallback {
+  return async ({ host }) => domainIsAllowed(host, allowedDomains);
 }
 
 // ── Output analysis ───────────────────────────────────────────────────────────
 
 /** Extract a path from a bash "Operation not permitted" OS sandbox error. */
 function extractBlockedWritePath(output: string): string | null {
-  const match = output.match(/(?:\/bin\/bash|bash|sh): (\/[^\s:]+): Operation not permitted/);
+  const match = output.match(
+    /(?:\/bin\/bash|bash|sh): (?:line \d: )?(\/[^\s:]+): Operation not permitted/,
+  );
   return match ? match[1] : null;
 }
 
 // ── Path pattern matching ─────────────────────────────────────────────────────
 
+function expandPath(filePath: string): string {
+  const expanded = filePath.replace(/^~(?=$|\/)/, homedir());
+  return resolve(expanded);
+}
+
+function canonicalizePath(filePath: string): string {
+  const abs = expandPath(filePath);
+  try {
+    return realpathSync.native(abs);
+  } catch {
+    // For writes to paths that do not exist yet, resolve symlinks in the nearest
+    // existing parent directory, then append the non-existent tail.
+    const tail: string[] = [];
+    let probe = abs;
+    while (!existsSync(probe)) {
+      const parent = dirname(probe);
+      if (parent === probe) return abs;
+      tail.unshift(basename(probe));
+      probe = parent;
+    }
+    try {
+      return resolve(realpathSync.native(probe), ...tail);
+    } catch {
+      return abs;
+    }
+  }
+}
+
 function matchesPattern(filePath: string, patterns: string[]): boolean {
-  const expanded = filePath.replace(/^~/, homedir());
-  const abs = resolve(expanded);
+  const abs = canonicalizePath(filePath);
   return patterns.some((p) => {
-    const expandedP = p.replace(/^~/, homedir());
-    const absP = resolve(expandedP);
+    const absP = p.includes("*") ? expandPath(p) : canonicalizePath(p);
     if (p.includes("*")) {
       const escaped = absP.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
       return new RegExp(`^${escaped}$`).test(abs);
     }
-    return abs === absP || abs.startsWith(absP + "/");
+    const sep = absP.endsWith("/") ? "" : "/";
+    return abs === absP || abs.startsWith(absP + sep);
   });
 }
 
@@ -280,7 +341,7 @@ function addWritePathToConfig(configPath: string, pathToAdd: string): void {
 
 // ── Sandboxed bash ops ────────────────────────────────────────────────────────
 
-function createSandboxedBashOps(): BashOperations {
+function createSandboxedBashOps(shellPath?: string): BashOperations {
   return {
     async exec(command, cwd, { onData, signal, timeout, env }) {
       if (!existsSync(cwd)) {
@@ -288,9 +349,10 @@ function createSandboxedBashOps(): BashOperations {
       }
 
       const wrappedCommand = await SandboxManager.wrapWithSandbox(command);
+      const { shell, args } = getShellConfig(shellPath);
 
       return new Promise((resolve, reject) => {
-        const child = spawn("bash", ["-c", wrappedCommand], {
+        const child = spawn(shell, [...args, wrappedCommand], {
           cwd,
           env,
           detached: true,
@@ -360,7 +422,8 @@ export default function (pi: ExtensionAPI) {
   });
 
   const localCwd = process.cwd();
-  const localBash = createBashTool(localCwd);
+  const userShellPath = SettingsManager.create(localCwd).getShellPath();
+  const localBash = createBashToolDefinition(localCwd, { shellPath: userShellPath });
 
   let sandboxEnabled = false;
   let sandboxInitialized = false;
@@ -397,23 +460,27 @@ export default function (pi: ExtensionAPI) {
     const config = loadConfig(cwd);
     const configExt = config as unknown as { allowBrowserProcess?: boolean };
     try {
+      const network = {
+        ...config.network,
+        allowedDomains: [...(config.network?.allowedDomains ?? []), ...sessionAllowedDomains],
+        deniedDomains: config.network?.deniedDomains ?? [],
+      };
       await SandboxManager.reset();
-      await SandboxManager.initialize({
-        network: {
-          ...config.network,
-          allowedDomains: [...(config.network?.allowedDomains ?? []), ...sessionAllowedDomains],
-          deniedDomains: config.network?.deniedDomains ?? [],
+      await SandboxManager.initialize(
+        {
+          network,
+          filesystem: {
+            ...config.filesystem,
+            denyRead: config.filesystem?.denyRead ?? [],
+            allowRead: [...(config.filesystem?.allowRead ?? []), ...sessionAllowedReadPaths],
+            allowWrite: [...(config.filesystem?.allowWrite ?? []), ...sessionAllowedWritePaths],
+            denyWrite: config.filesystem?.denyWrite ?? [],
+          },
+          allowBrowserProcess: configExt.allowBrowserProcess,
+          enableWeakerNetworkIsolation: true,
         },
-        filesystem: {
-          ...config.filesystem,
-          denyRead: config.filesystem?.denyRead ?? [],
-          allowRead: config.filesystem?.allowRead ?? [],
-          allowWrite: [...(config.filesystem?.allowWrite ?? []), ...sessionAllowedWritePaths],
-          denyWrite: config.filesystem?.denyWrite ?? [],
-        },
-        allowBrowserProcess: configExt.allowBrowserProcess,
-        enableWeakerNetworkIsolation: true,
-      });
+        createNetworkAskCallback(network.allowedDomains),
+      );
     } catch (e) {
       console.error(`Warning: Failed to reinitialize sandbox: ${e}`);
     }
@@ -421,55 +488,184 @@ export default function (pi: ExtensionAPI) {
 
   // ── UI prompts ──────────────────────────────────────────────────────────────
 
+  interface PromptOption {
+    label: string;
+    key: string;
+    action: "abort" | "session" | "project" | "global";
+    confirm?: boolean;
+    hint?: string;
+  }
+
+  const PERMISSION_OPTIONS: PromptOption[] = [
+    { label: "Allow for this session only", key: "s", action: "session" },
+    { label: "Abort (keep blocked)", key: "esc", action: "abort" },
+    {
+      label: "Allow for this project",
+      key: "P",
+      action: "project",
+      confirm: true,
+      hint: "→ .pi/sandbox.json",
+    },
+    {
+      label: "Allow for all projects",
+      key: "A",
+      action: "global",
+      confirm: true,
+      hint: "→ ~/.pi/agent/sandbox.json",
+    },
+  ];
+
+  async function showPermissionPrompt(
+    ctx: ExtensionContext,
+    title: string,
+    options: PromptOption[],
+  ): Promise<"abort" | "session" | "project" | "global"> {
+    if (!ctx.hasUI) return "abort";
+
+    const result = await ctx.ui.custom<"abort" | "session" | "project" | "global">(
+      (tui, theme, _kb, done) => {
+        let selectedIndex = 0;
+        let pendingAction: "abort" | "session" | "project" | "global" | null = null;
+
+        function resolve(action: "abort" | "session" | "project" | "global") {
+          done(action);
+        }
+
+        return {
+          render(width: number): string[] {
+            const lines: string[] = [];
+            lines.push(truncateToWidth(theme.fg("warning", title), width));
+            lines.push("");
+
+            for (let i = 0; i < options.length; i++) {
+              const opt = options[i];
+              const isSelected = i === selectedIndex;
+              const isPending = pendingAction === opt.action;
+
+              const prefix = isSelected ? " → " : "   ";
+              const keyHint = theme.fg("accent", `[${opt.key}]`);
+              let label = opt.label;
+
+              if (opt.hint) {
+                label += `  ${theme.fg("dim", opt.hint)}`;
+              }
+
+              if (isPending) {
+                label += `  ${theme.fg("warning", "→ press Enter to confirm")}`;
+              }
+
+              const line = `${prefix}${keyHint} ${label}`;
+              lines.push(truncateToWidth(line, width));
+            }
+
+            lines.push("");
+            const footer = pendingAction
+              ? "↑↓ navigate  enter confirm  esc cancel"
+              : "↑↓ navigate  enter select  esc/ctrl+c cancel";
+            lines.push(truncateToWidth(theme.fg("dim", footer), width));
+
+            return lines;
+          },
+
+          handleInput(data: string): void {
+            if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"))) {
+              resolve("abort");
+              return;
+            }
+
+            if (matchesKey(data, Key.enter)) {
+              if (pendingAction) {
+                resolve(pendingAction);
+              } else {
+                resolve(options[selectedIndex]?.action ?? "abort");
+              }
+              return;
+            }
+
+            if (matchesKey(data, Key.up)) {
+              selectedIndex = Math.max(0, selectedIndex - 1);
+              pendingAction = null;
+              tui.requestRender();
+              return;
+            }
+            if (matchesKey(data, Key.down)) {
+              selectedIndex = Math.min(options.length - 1, selectedIndex + 1);
+              pendingAction = null;
+              tui.requestRender();
+              return;
+            }
+
+            for (let i = 0; i < options.length; i++) {
+              const opt = options[i];
+              if (data === opt.key) {
+                // Exact case match (uppercase P/A) → immediate
+                resolve(opt.action);
+                return;
+              }
+              if (data.toLowerCase() === opt.key.toLowerCase()) {
+                // Lowercase match → confirmation required for P/A
+                if (opt.confirm) {
+                  pendingAction = opt.action;
+                  selectedIndex = i;
+                } else {
+                  resolve(opt.action);
+                }
+                tui.requestRender();
+                return;
+              }
+            }
+          },
+
+          invalidate(): void {
+            // no-op
+          },
+        };
+      },
+    );
+
+    return result ?? "abort";
+  }
+
   async function promptDomainBlock(
     ctx: ExtensionContext,
     domain: string,
   ): Promise<"abort" | "session" | "project" | "global"> {
-    if (!ctx.hasUI) return "abort";
-    const choice = await ctx.ui.select(`🌐 Network blocked: "${domain}" is not in allowedDomains`, [
-      "Abort (keep blocked)",
-      "Allow for this session only",
-      "Allow for this project  →  .pi/sandbox.json",
-      "Allow for all projects  →  ~/.pi/agent/sandbox.json",
-    ]);
-    if (!choice || choice.startsWith("Abort")) return "abort";
-    if (choice.startsWith("Allow for this session")) return "session";
-    if (choice.startsWith("Allow for this project")) return "project";
-    return "global";
+    return showPermissionPrompt(
+      ctx,
+      `🌐 Network blocked: "${domain}" is not in allowedDomains`,
+      PERMISSION_OPTIONS,
+    );
   }
 
   async function promptReadBlock(
     ctx: ExtensionContext,
     filePath: string,
   ): Promise<"abort" | "session" | "project" | "global"> {
-    if (!ctx.hasUI) return "abort";
-    const choice = await ctx.ui.select(`📖 Read blocked: "${filePath}" is not in allowRead`, [
-      "Abort (keep blocked)",
-      "Allow for this session only",
-      "Allow for this project  →  .pi/sandbox.json",
-      "Allow for all projects  →  ~/.pi/agent/sandbox.json",
-    ]);
-    if (!choice || choice.startsWith("Abort")) return "abort";
-    if (choice.startsWith("Allow for this session")) return "session";
-    if (choice.startsWith("Allow for this project")) return "project";
-    return "global";
+    return showPermissionPrompt(
+      ctx,
+      `📖 Read blocked: "${filePath}" is not in allowRead`,
+      PERMISSION_OPTIONS,
+    );
   }
 
   async function promptWriteBlock(
     ctx: ExtensionContext,
     filePath: string,
   ): Promise<"abort" | "session" | "project" | "global"> {
-    if (!ctx.hasUI) return "abort";
-    const choice = await ctx.ui.select(`📝 Write blocked: "${filePath}" is not in allowWrite`, [
-      "Abort (keep blocked)",
-      "Allow for this session only",
-      "Allow for this project  →  .pi/sandbox.json",
-      "Allow for all projects  →  ~/.pi/agent/sandbox.json",
-    ]);
-    if (!choice || choice.startsWith("Abort")) return "abort";
-    if (choice.startsWith("Allow for this session")) return "session";
-    if (choice.startsWith("Allow for this project")) return "project";
-    return "global";
+    return showPermissionPrompt(
+      ctx,
+      `📝 Write blocked: "${filePath}" is not in allowWrite`,
+      PERMISSION_OPTIONS,
+    );
+  }
+
+  function warnIfAllDomainsAllowed(ctx: ExtensionContext, config: SandboxConfig): void {
+    if (!allowsAllDomains(config.network?.allowedDomains)) return;
+    ctx.ui.notify(
+      '⚠️ Network sandbox allows all domains because network.allowedDomains contains "*". ' +
+        'Only use this intentionally; remove "*" to restore per-domain prompts.',
+      "warning",
+    );
   }
 
   // ── Apply allowance choices ─────────────────────────────────────────────────
@@ -518,15 +714,32 @@ export default function (pi: ExtensionAPI) {
     async execute(id, params, signal, onUpdate, ctx) {
       const runBash = () => {
         if (!sandboxEnabled || !sandboxInitialized) {
-          return localBash.execute(id, params, signal, onUpdate);
+          return localBash.execute(id, params, signal, onUpdate, ctx);
         }
-        const sandboxedBash = createBashTool(localCwd, {
-          operations: createSandboxedBashOps(),
+        const sandboxedBash = createBashToolDefinition(localCwd, {
+          operations: createSandboxedBashOps(userShellPath),
+          shellPath: userShellPath,
         });
-        return sandboxedBash.execute(id, params, signal, onUpdate);
+        return sandboxedBash.execute(id, params, signal, onUpdate, ctx);
       };
 
-      const result = await runBash();
+      let result: AgentToolResult<any>;
+      try {
+        result = await runBash();
+      } catch (e) {
+        if (!(e instanceof Error)) throw e;
+        if (!e.message.includes("Operation not permitted")) throw e;
+
+        result = {
+          content: [
+            {
+              type: "text",
+              text: `Error: Command failed with OS-level sandbox restriction: ${e.message}`,
+            },
+          ],
+          details: {},
+        };
+      }
 
       // Post-execution: detect OS-level write block and offer to allow.
       if (sandboxEnabled && sandboxInitialized && ctx?.hasUI) {
@@ -596,19 +809,21 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    return { operations: createSandboxedBashOps() };
+    return { operations: createSandboxedBashOps(userShellPath) };
   });
 
   // ── tool_call — network pre-check for bash, path policy for read/write/edit
 
   pi.on("tool_call", async (event, ctx) => {
+    if (!sandboxEnabled) return;
+
     const config = loadConfig(ctx.cwd);
     if (!config.enabled) return;
 
     const { projectPath, globalPath } = getConfigPaths(ctx.cwd);
 
     // Network pre-check for bash tool calls.
-    if (sandboxEnabled && sandboxInitialized && isToolCallEventType("bash", event)) {
+    if (sandboxInitialized && isToolCallEventType("bash", event)) {
       const domains = extractDomainsFromCommand(event.input.command);
       const effectiveDomains = getEffectiveAllowedDomains(ctx.cwd);
       for (const domain of domains) {
@@ -632,7 +847,7 @@ export default function (pi: ExtensionAPI) {
     //   - denyRead is never a hard-block on its own — it just sets the default
     //     denied state that the prompt can override.
     if (isToolCallEventType("read", event)) {
-      const filePath = event.input.path;
+      const filePath = canonicalizePath(event.input.path);
       const effectiveAllowRead = getEffectiveAllowRead(ctx.cwd);
 
       if (!matchesPattern(filePath, effectiveAllowRead)) {
@@ -651,11 +866,11 @@ export default function (pi: ExtensionAPI) {
 
     // Path policy: write/edit — prompt for allowWrite, hard-block for denyWrite.
     if (isToolCallEventType("write", event) || isToolCallEventType("edit", event)) {
-      const path = (event.input as { path: string }).path;
+      const path = canonicalizePath((event.input as { path: string }).path);
       const allowWrite = getEffectiveAllowWrite(ctx.cwd);
       const denyWrite = config.filesystem?.denyWrite ?? [];
 
-      if (allowWrite.length > 0 && !matchesPattern(path, allowWrite)) {
+      if (shouldPromptForWrite(path, allowWrite, matchesPattern)) {
         const choice = await promptWriteBlock(ctx, path);
         if (choice === "abort") {
           return {
@@ -726,35 +941,41 @@ export default function (pi: ExtensionAPI) {
         allowBrowserProcess?: boolean;
       };
 
-      await SandboxManager.initialize({
-        network: config.network,
-        filesystem: config.filesystem,
-        ignoreViolations: configExt.ignoreViolations,
-        enableWeakerNestedSandbox: configExt.enableWeakerNestedSandbox,
-        allowBrowserProcess: configExt.allowBrowserProcess,
-        enableWeakerNetworkIsolation: true,
-      });
+      await SandboxManager.initialize(
+        {
+          network: config.network,
+          filesystem: config.filesystem,
+          ignoreViolations: configExt.ignoreViolations,
+          enableWeakerNestedSandbox: configExt.enableWeakerNestedSandbox,
+          allowBrowserProcess: configExt.allowBrowserProcess,
+          enableWeakerNetworkIsolation: true,
+        },
+        createNetworkAskCallback(config.network?.allowedDomains ?? []),
+      );
 
       // Make Node's built-in fetch() honour HTTP_PROXY / HTTPS_PROXY in this
       // process and any child processes that inherit the environment.
-      // undici (which powers globalThis.fetch) ignores proxy env vars by default;
-      // --use-env-proxy (Node 22+) opts it in. We set this here so that node
-      // subprocesses spawned directly from bash (e.g. `node script.ts`) also
-      // pick it up without needing to go through wrapWithSandbox.
-      const nodeMajor = parseInt(process.versions.node.split(".")[0], 10);
-      if (nodeMajor >= 22) {
-        const existing = process.env.NODE_OPTIONS ?? "";
-        process.env.NODE_OPTIONS = existing ? `${existing} --use-env-proxy` : "--use-env-proxy";
+      // NODE_USE_ENV_PROXY avoids NODE_OPTIONS allowlisting issues on older Node
+      // versions while still propagating naturally to child `node` processes.
+      // fetch() supports this on Node 22.21.0+ and 24.0.0+.
+      const [nodeMajor, nodeMinor] = process.versions.node.split(".").map(Number);
+      const supportsEnvProxy = (nodeMajor === 22 && nodeMinor >= 21) || nodeMajor >= 24;
+      if (supportsEnvProxy) {
+        process.env.NODE_USE_ENV_PROXY ??= "1";
       }
 
       sandboxEnabled = true;
       sandboxInitialized = true;
 
-      const networkCount = config.network?.allowedDomains?.length ?? 0;
+      warnIfAllDomainsAllowed(ctx, config);
+
+      const networkLabel = allowsAllDomains(config.network?.allowedDomains)
+        ? "all domains"
+        : `${config.network?.allowedDomains?.length ?? 0} domains`;
       const writeCount = config.filesystem?.allowWrite?.length ?? 0;
       ctx.ui.setStatus(
         "sandbox",
-        ctx.ui.theme.fg("accent", `🔒 Sandbox: ${networkCount} domains, ${writeCount} write paths`),
+        ctx.ui.theme.fg("accent", `🔒 Sandbox: ${networkLabel}, ${writeCount} write paths`),
       );
     } catch (err) {
       sandboxEnabled = false;
@@ -801,26 +1022,30 @@ export default function (pi: ExtensionAPI) {
           allowBrowserProcess?: boolean;
         };
 
-        await SandboxManager.initialize({
-          network: config.network,
-          filesystem: config.filesystem,
-          ignoreViolations: configExt.ignoreViolations,
-          enableWeakerNestedSandbox: configExt.enableWeakerNestedSandbox,
-          allowBrowserProcess: configExt.allowBrowserProcess,
-          enableWeakerNetworkIsolation: true,
-        });
+        await SandboxManager.initialize(
+          {
+            network: config.network,
+            filesystem: config.filesystem,
+            ignoreViolations: configExt.ignoreViolations,
+            enableWeakerNestedSandbox: configExt.enableWeakerNestedSandbox,
+            allowBrowserProcess: configExt.allowBrowserProcess,
+            enableWeakerNetworkIsolation: true,
+          },
+          createNetworkAskCallback(config.network?.allowedDomains ?? []),
+        );
 
         sandboxEnabled = true;
         sandboxInitialized = true;
 
-        const networkCount = config.network?.allowedDomains?.length ?? 0;
+        warnIfAllDomainsAllowed(ctx, config);
+
+        const networkLabel = allowsAllDomains(config.network?.allowedDomains)
+          ? "all domains"
+          : `${config.network?.allowedDomains?.length ?? 0} domains`;
         const writeCount = config.filesystem?.allowWrite?.length ?? 0;
         ctx.ui.setStatus(
           "sandbox",
-          ctx.ui.theme.fg(
-            "accent",
-            `🔒 Sandbox: ${networkCount} domains, ${writeCount} write paths`,
-          ),
+          ctx.ui.theme.fg("accent", `🔒 Sandbox: ${networkLabel}, ${writeCount} write paths`),
         );
         ctx.ui.notify("Sandbox enabled", "info");
       } catch (err) {
@@ -873,6 +1098,9 @@ export default function (pi: ExtensionAPI) {
         "",
         "Network (bash + !cmd):",
         `  Allowed domains: ${config.network?.allowedDomains?.join(", ") || "(none)"}`,
+        ...(allowsAllDomains(config.network?.allowedDomains)
+          ? ['  ⚠️ "*" allows all domains and disables per-domain prompts.']
+          : []),
         `  Denied domains:  ${config.network?.deniedDomains?.join(", ") || "(none)"}`,
         ...(sessionAllowedDomains.length > 0
           ? [`  Session allowed: ${sessionAllowedDomains.join(", ")}`]

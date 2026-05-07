@@ -4,7 +4,7 @@ Sandbox for [pi](https://pi.dev/).
 
 Sandboxes pi like this:
 - read/write/edit: direct control using allow/deny lists
-- bash: uses [Anthropic Sandbox Runtime](https://github.com/anthropic-experimental/sandbox-runtime) to control network and file system access
+- bash: uses [`@carderne/sandbox-runtime`](https://www.npmjs.com/package/@carderne/sandbox-runtime) to control network and file system access
 
 When a blocked action is attempted, the user is
 prompted to allow it temporarily or permanently rather than silently failing.
@@ -19,13 +19,48 @@ These open significant security loopholes, so shouldn't be used in a sensitive c
 You may need to trial and error to find additional things you need to allow.
 
 ## Quickstart
+
+#### Prerequisites
+
+`pi-sandbox` delegates the OS-level bash sandbox to
+[`@carderne/sandbox-runtime`](https://www.npmjs.com/package/@carderne/sandbox-runtime),
+published from the fork at <https://github.com/carderne/sandbox-runtime>,
+which is forked from Anthropic's
+[`anthropic-experimental/sandbox-runtime`](https://github.com/anthropic-experimental/sandbox-runtime).
+The sandbox runtime checks for [`ripgrep`](https://github.com/BurntSushi/ripgrep) (the
+`rg` binary) on **both macOS and Linux** at sandbox-init time. If `rg`
+is not on the `PATH` that pi was launched with, sandbox initialization
+fails with:
+
+```
+Sandbox initialization failed: Sandbox dependencies not available: ripgrep (rg) not found
+```
+
+Install ripgrep before enabling the extension:
+
+| Platform | Install |
+|---|---|
+| macOS (Homebrew) | `brew install ripgrep` |
+| macOS (MacPorts) | `sudo port install ripgrep` |
+| Linux (Debian/Ubuntu) | `sudo apt install ripgrep` |
+| Linux (Fedora/RHEL) | `sudo dnf install ripgrep` |
+| Linux (Arch) | `sudo pacman -S ripgrep` |
+| From source / other | <https://github.com/BurntSushi/ripgrep#installation> |
+
+If `which rg` succeeds in your shell but pi still reports `rg not
+found`, pi is being launched from a parent process whose `PATH` does
+not include the directory containing `rg` (common when GUI launchers
+inherit a minimal non-login `PATH`). On macOS, `/opt/homebrew/bin` and
+`/usr/local/bin` are the usual culprits — make sure your launcher's
+environment includes whichever one your install uses.
+
 #### Install
 ```bash
 pi install npm:pi-sandbox
 ```
 
 #### Configure
-Add a config like this either to `~/.pi/agent` (global) or to `.pi/sandbox.json` (local).
+Add a config like this either to `~/.pi/agent/sandbox.json` (global) or to `.pi/sandbox.json` (local).
 Local config takes precedence over global.
 
 Note below that the order of precedence for filesystem read and write are opposite.
@@ -99,7 +134,9 @@ If a path is added to `allowWrite` via a prompt but is also present in
 `denyWrite`, it remains blocked. A warning is shown explaining which config
 files to check.
 
-`allowedDomains` supports `*.example.com` wildcards. `allowWrite` uses prefix
+`allowedDomains` supports `*.example.com` wildcards. It also supports `"*"` to
+allow all domains; pi-sandbox shows a warning when this is configured because it
+removes per-domain prompts and can be easy to add accidentally. `allowWrite` uses prefix
 matching, so `.` covers the entire current working directory.
 
 > **⚠️ Read and write have different precedence rules:**
