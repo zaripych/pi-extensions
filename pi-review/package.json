@@ -1,0 +1,42 @@
+{
+  "name": "pi-review",
+  "version": "0.1.0",
+  "description": "Pi extension: code review via isolated reviewer subprocess",
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "dedent": "1.7.2",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@earendil-works/pi-tui": "*",
+    "@faker-js/faker": "^10.4.0",
+    "@types/node": "^25.8.0",
+    "foundation": "workspace:*",
+    "typebox": "*",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.6"
+  }
+}
