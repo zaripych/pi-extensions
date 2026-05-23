@@ -1,0 +1,33 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.15/schema.json",
+  "root": true,
+  "extends": ["foundation/biome.common.json"],
+  "files": {
+    "includes": [
+      "!stop-on-question",
+      "!pi-web-fetch",
+      "!pi-sandbox",
+      "!node_modules",
+      "!package-lock.json",
+      "!pnpm-lock.yaml",
+      "!!dist",
+      "!!coverage"
+    ]
+  },
+  "plugins": [
+    "./foundation/rules/no-type-assertions.grit",
+    "./foundation/rules/no-angle-type-assertions.grit"
+  ],
+  "overrides": [
+    {
+      "includes": ["*/index.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noDefaultExport": "off"
+          }
+        }
+      }
+    }
+  ]
+}
