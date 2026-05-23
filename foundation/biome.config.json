@@ -1,5 +1,4 @@
 {
-  "root": false,
   "extends": ["./biome.common.json"],
   "plugins": [
     "./rules/no-type-assertions.grit",
