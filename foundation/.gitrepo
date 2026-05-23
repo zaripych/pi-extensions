@@ -6,7 +6,7 @@
 [subrepo]
 	remote = git@github.com:zaripych/foundation.git
 	branch = main
-	commit = 08379f8f9fccd4893ef833529af84ff1f96d3a35
-	parent = ebfbbacf77eed4faee66edb3a28595c335cdf7c9
+	commit = 43822af3c3161473d70f325167b6238d052909e1
+	parent = 215e9239383b942aa5e0be745e26c00ec63af027
 	method = merge
 	cmdver = 0.4.3
