@@ -1,6 +1,7 @@
 engine biome(1.0)
 language js(typescript, jsx)
 
-TsAsExpression() as $assertion where {
+TsAsExpression(ty=$type) as $assertion where {
+  not $type <: contains `const`,
   register_diagnostic(span=$assertion, message="Type assertions are banned. Prefer narrowing, validation, or better types.")
 }
