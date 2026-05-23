@@ -1,0 +1,6 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+TsTypeAssertionExpression() as $assertion where {
+  register_diagnostic(span=$assertion, message="Type assertions are banned. Prefer narrowing, validation, or better types.")
+}

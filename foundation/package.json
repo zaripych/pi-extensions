@@ -1,0 +1,20 @@
+{
+  "name": "foundation",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./testing/harness/*": "./testing/harness/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "test": "vitest run",
+    "verify": "npm run typecheck && npm run lint && npm run test -- --changed"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.15",
+    "expect-type": "^1.2.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.4"
+  }
+}

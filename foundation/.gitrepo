@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/git-commands/git-subrepo#readme
+;
+[subrepo]
+	remote = git@github.com:zaripych/foundation.git
+	branch = main
+	commit = b341ab86726b57aec8257ea0b0d11cfcdeeaa5af
+	parent = a66e35581bf3630ed37439ebb1bf38b9a83e944f
+	method = merge
+	cmdver = 0.4.3
