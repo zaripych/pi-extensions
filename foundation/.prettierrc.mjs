@@ -9,5 +9,13 @@ export default {
   tabWidth: 2,
   semi: false,
   singleQuote: true,
-  proseWrap: 'always',
+  proseWrap: 'preserve',
+  overrides: [
+    {
+      files: '*.(js|ts|mjs|mts|tsx)',
+      options: {
+        proseWrap: 'always',
+      },
+    },
+  ],
 }
