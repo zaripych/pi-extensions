@@ -6,14 +6,14 @@
     "./testing/harness/*": "./testing/harness/*.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit --pretty",
-    "lint": "biome check --config-path ./biome.config.json .",
-    "test": "vitest run",
     "format": "prettier --write -u .",
-    "verify": "npm run typecheck && npm run lint && npm run test -- --changed",
-    "lint-staged": "lint-staged --hide-all",
+    "lint": "biome check --config-path ./biome.config.json .",
     "lint-changed": "lint-staged --diff HEAD",
-    "prepare": "husky"
+    "lint-staged": "lint-staged --hide-all",
+    "prepare": "[ -d .git ] && husky || true",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit --pretty",
+    "verify": "npm run typecheck && npm run lint && npm run test -- --changed"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
@@ -21,6 +21,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^17.0.5",
     "prettier": "3.8.3",
+    "sort-package-json": "3.6.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.7"
   }

@@ -7,4 +7,5 @@ export default {
     'prettier --write -u',
   ],
   [allJs]: () => 'tsc --noEmit --pretty',
+  'package.json': () => 'npm exec sort-package-json',
 }
