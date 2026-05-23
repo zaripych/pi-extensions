@@ -1,5 +1,5 @@
-import { AsyncDisposableStack } from './asyncDisposableStack';
-import { isCallable, wrapOnce } from './helpers';
+import { AsyncDisposableStack } from './asyncDisposableStack'
+import { isCallable, wrapOnce } from './helpers'
 import type {
   AnyHarness,
   CombinedDeps,
@@ -7,31 +7,31 @@ import type {
   HarnessResult,
   OmitDispose,
   SimplifyDeps,
-} from './types';
+} from './types'
 
 function wrapFunctionProperties<T extends Record<string, unknown>>(
-  values: T,
+  values: T
 ): T {
-  const wrapped: Record<string, unknown> = {};
+  const wrapped: Record<string, unknown> = {}
 
   for (const [key, value] of Object.entries(values)) {
-    wrapped[key] = isCallable(value) ? wrapOnce(value) : value;
+    wrapped[key] = isCallable(value) ? wrapOnce(value) : value
   }
 
   // biome-ignore-start lint/plugin/no-type-assertions: dynamically constructed return cannot be proven to match T
-  return wrapped as T;
+  return wrapped as T
   // biome-ignore-end lint/plugin/no-type-assertions: end
 }
 
 function isAsyncDisposable(value: unknown): value is AsyncDisposable {
   if (value === null || typeof value !== 'object') {
-    return false;
+    return false
   }
 
   return (
     Symbol.asyncDispose in value &&
     typeof value[Symbol.asyncDispose] === 'function'
-  );
+  )
 }
 
 /**
@@ -51,46 +51,46 @@ export function combineHarnesses<const Harnesses extends AnyHarness[]>(
     ...infer Rest extends AnyHarness[],
   ]
     ? OmitDispose<HarnessResult<First>> & CombinedResult<Rest>
-    : Record<never, never>;
-  type Overrides = Partial<SimplifyDeps<CombinedDeps<Harnesses> & RawResult>>;
-  type Result = CombinedResult<Harnesses> & AsyncDisposable;
+    : Record<never, never>
+  type Overrides = Partial<SimplifyDeps<CombinedDeps<Harnesses> & RawResult>>
+  type Result = CombinedResult<Harnesses> & AsyncDisposable
 
   return async (overrides: Overrides = {}): Promise<Result> => {
-    const stack = new AsyncDisposableStack();
+    const stack = new AsyncDisposableStack()
 
-    const accumulated: Record<string, unknown> = {};
-    const wrappedOverrides = wrapFunctionProperties(overrides);
+    const accumulated: Record<string, unknown> = {}
+    const wrappedOverrides = wrapFunctionProperties(overrides)
 
     for (const harness of harnesses) {
-      const input = { ...accumulated, ...wrappedOverrides };
+      const input = { ...accumulated, ...wrappedOverrides }
       // biome-ignore-start lint/plugin/no-type-assertions: accumulated input and harness return are dynamically constructed
-      const result = (await harness(input as never)) as Record<string, unknown>;
+      const result = (await harness(input as never)) as Record<string, unknown>
       // biome-ignore-end lint/plugin/no-type-assertions: end
 
       if (isAsyncDisposable(result)) {
-        const dispose = result[Symbol.asyncDispose].bind(result);
-        stack.defer(dispose);
+        const dispose = result[Symbol.asyncDispose].bind(result)
+        stack.defer(dispose)
       }
 
-      const wrappedResult = wrapFunctionProperties(result);
+      const wrappedResult = wrapFunctionProperties(result)
 
       for (const key of Object.keys(wrappedResult)) {
-        accumulated[key] = wrappedResult[key];
+        accumulated[key] = wrappedResult[key]
       }
     }
 
     const merged: Record<string, unknown> = {
       ...accumulated,
       ...wrappedOverrides,
-    };
+    }
 
     // biome-ignore-start lint/plugin/no-type-assertions: merged result is dynamically constructed from accumulated harness outputs
     return {
       ...merged,
       async [Symbol.asyncDispose]() {
-        await stack[Symbol.asyncDispose]();
+        await stack[Symbol.asyncDispose]()
       },
-    } as unknown as Result;
+    } as unknown as Result
     // biome-ignore-end lint/plugin/no-type-assertions: end
-  };
+  }
 }

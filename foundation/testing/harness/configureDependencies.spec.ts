@@ -1,54 +1,54 @@
-import { expectTypeOf } from 'expect-type';
-import type { MockedFunction } from 'vitest';
-import { describe, expect, it, vi } from 'vitest';
-import { configureDependencies } from './configureDependencies';
-import { configureHarnesses } from './configureHarnesses';
+import { expectTypeOf } from 'expect-type'
+import type { MockedFunction } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { configureDependencies } from './configureDependencies'
+import { configureHarnesses } from './configureHarnesses'
 
 type SetupA = (deps?: {
-  alpha?: () => Promise<string>;
-  beta?: (x: number) => number;
+  alpha?: () => Promise<string>
+  beta?: (x: number) => number
 }) => Promise<{
-  alpha: MockedFunction<() => Promise<string>>;
-  beta: MockedFunction<(x: number) => number>;
-  doA: () => void;
-}>;
+  alpha: MockedFunction<() => Promise<string>>
+  beta: MockedFunction<(x: number) => number>
+  doA: () => void
+}>
 
 type SetupB = (deps?: { gamma?: () => boolean }) => Promise<{
-  gamma: MockedFunction<() => boolean>;
-  doB: () => void;
-}>;
+  gamma: MockedFunction<() => boolean>
+  doB: () => void
+}>
 
 const setupA: SetupA = async (deps) => ({
   alpha: vi.fn(deps?.alpha ?? (async () => 'default')),
   beta: vi.fn(deps?.beta ?? ((x: number) => x)),
   doA: vi.fn(),
-});
+})
 
 const setupB: SetupB = async (deps) => ({
   gamma: vi.fn(deps?.gamma ?? (() => true)),
   doB: vi.fn(),
-});
+})
 
 describe('configureDependencies runtime + type inference', () => {
   it('returns configured dependencies synchronously', () => {
-    const defaultDeps = { alpha: () => 'default' };
+    const defaultDeps = { alpha: () => 'default' }
 
     const result = configureDependencies(
       { inferTypesFrom: { defaultDeps } },
       {
         alpha: () => 'configured',
-      },
-    );
+      }
+    )
 
-    expectTypeOf(result.alpha).toEqualTypeOf<MockedFunction<() => string>>();
-    expect(result.alpha()).toBe('configured');
-  });
+    expectTypeOf(result.alpha).toEqualTypeOf<MockedFunction<() => string>>()
+    expect(result.alpha()).toBe('configured')
+  })
 
   it('rejects constructed user deps in defaultDeps mode', () => {
-    const defaultDeps = { alpha: async () => 'default' };
+    const defaultDeps = { alpha: async () => 'default' }
 
     function assertConstructedUserDepsRejected(
-      userDeps?: Partial<typeof defaultDeps>,
+      userDeps?: Partial<typeof defaultDeps>
     ) {
       void configureDependencies(
         {
@@ -61,12 +61,12 @@ describe('configureDependencies runtime + type inference', () => {
         },
         {
           alpha: () => 'configured',
-        },
-      );
+        }
+      )
     }
 
-    expectTypeOf(assertConstructedUserDepsRejected).not.toBeAny();
-  });
+    expectTypeOf(assertConstructedUserDepsRejected).not.toBeAny()
+  })
 
   it('rejects unmarked user deps', () => {
     function assertPlainUserDepsRejected() {
@@ -78,15 +78,15 @@ describe('configureDependencies runtime + type inference', () => {
           // @ts-expect-error User deps must come from configureHarnesses input.
           userDeps: { alpha: async () => 'plain' },
         },
-        {},
-      );
+        {}
+      )
     }
 
-    expectTypeOf(assertPlainUserDepsRejected).not.toBeAny();
-  });
+    expectTypeOf(assertPlainUserDepsRejected).not.toBeAny()
+  })
 
   it('accepts marked user deps from configureHarnesses and uses them as overrides', async () => {
-    const alpha = async () => 'override';
+    const alpha = async () => 'override'
     const setup = configureHarnesses(setupA, (userDeps) => {
       const result = configureDependencies(
         {
@@ -97,20 +97,20 @@ describe('configureDependencies runtime + type inference', () => {
         },
         {
           alpha: () => 'configured',
-        },
-      );
+        }
+      )
 
-      return { result };
-    });
+      return { result }
+    })
 
-    await using harness = await setup({ alpha });
+    await using harness = await setup({ alpha })
 
-    expect(vi.isMockFunction(harness.result.alpha)).toBe(true);
-    expect(await harness.result.alpha()).toBe('override');
-  });
+    expect(vi.isMockFunction(harness.result.alpha)).toBe(true)
+    expect(await harness.result.alpha()).toBe('override')
+  })
 
   it('infers dependency types from marked user deps without inferTypesFrom', async () => {
-    const defaultDeps = { alpha: async () => 'default' };
+    const defaultDeps = { alpha: async () => 'default' }
 
     const setup = configureHarnesses(
       { inferTypesFrom: { defaultDeps } },
@@ -119,18 +119,18 @@ describe('configureDependencies runtime + type inference', () => {
           { userDeps },
           {
             alpha: () => 'configured',
-          },
-        );
+          }
+        )
 
-        return { result };
-      },
-    );
+        return { result }
+      }
+    )
 
-    await using harness = await setup();
+    await using harness = await setup()
 
-    expect(vi.isMockFunction(harness.result.alpha)).toBe(true);
-    expect(await harness.result.alpha()).toBe('configured');
-  });
+    expect(vi.isMockFunction(harness.result.alpha)).toBe(true)
+    expect(await harness.result.alpha()).toBe('configured')
+  })
 
   it('infers configurator fn type from harnesses', async () => {
     const result = configureDependencies(
@@ -142,14 +142,14 @@ describe('configureDependencies runtime + type inference', () => {
       {
         alpha: () => 'hello',
         gamma: () => false,
-      },
-    );
+      }
+    )
 
-    expectTypeOf(result.alpha).not.toBeAny();
-    expectTypeOf(result.gamma).not.toBeAny();
-    expect(vi.isMockFunction(result.alpha)).toBe(true);
-    expect(vi.isMockFunction(result.gamma)).toBe(true);
-    expect(await result.alpha()).toBe('hello');
-    expect(result.gamma()).toBe(false);
-  });
-});
+    expectTypeOf(result.alpha).not.toBeAny()
+    expectTypeOf(result.gamma).not.toBeAny()
+    expect(vi.isMockFunction(result.alpha)).toBe(true)
+    expect(vi.isMockFunction(result.gamma)).toBe(true)
+    expect(await result.alpha()).toBe('hello')
+    expect(result.gamma()).toBe(false)
+  })
+})
