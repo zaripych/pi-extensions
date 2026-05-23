@@ -20,7 +20,11 @@
   },
   "overrides": [
     {
-      "includes": ["**/vitest.config.ts", "**/.prettierrc.*"],
+      "includes": [
+        "**/vitest.config.*",
+        "**/.prettierrc.*",
+        "**/lint-staged.config.*"
+      ],
       "linter": {
         "rules": {
           "style": {

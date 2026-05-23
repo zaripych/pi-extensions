@@ -6,16 +6,22 @@
     "./testing/harness/*": "./testing/harness/*.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit --pretty",
     "lint": "biome check --config-path ./biome.config.json .",
     "test": "vitest run",
-    "verify": "npm run typecheck && npm run lint && npm run test -- --changed"
+    "format": "prettier --write -u .",
+    "verify": "npm run typecheck && npm run lint && npm run test -- --changed",
+    "lint-staged": "lint-staged --hide-all",
+    "lint-changed": "lint-staged --diff HEAD",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
     "expect-type": "^1.3.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.5",
+    "prettier": "3.8.3",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.7",
-    "prettier": "3.8.3"
+    "vitest": "^4.1.7"
   }
 }
