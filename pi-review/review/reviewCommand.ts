@@ -14,29 +14,36 @@ const defaultDeps = {
   runReviewSession,
 }
 
-export async function reviewCommand(
-  params: {
-    args: string
-    cwd: string
-    currentModelId: string | undefined
-    availableModelIds: string[]
-    hasUI: boolean
-    select: (title: string, options: string[]) => Promise<string | undefined>
-    input: (title: string, placeholder?: string) => Promise<string | undefined>
-    notify: (message: string, level: 'info' | 'warning' | 'error') => void
-    sendMessage: (message: {
-      customType: string
-      content: string
-      display: boolean
-      details: ReviewOutput & { modelId: string }
-    }) => void
-  },
-  deps = defaultDeps
-): Promise<
+type ReviewCommandParams = {
+  args: string
+  cwd: string
+  currentModelId: string | undefined
+  availableModelIds: string[]
+  hasUI: boolean
+  select: (title: string, options: string[]) => Promise<string | undefined>
+  input: (title: string, placeholder?: string) => Promise<string | undefined>
+  notify: (message: string, level: 'info' | 'warning' | 'error') => void
+  runWithCancellableLoader: <T>(args: {
+    description: string
+    run: (runArgs: { signal: AbortSignal }) => Promise<T>
+  }) => Promise<T>
+  sendMessage: (message: {
+    customType: string
+    content: string
+    display: boolean
+    details: ReviewOutput & { modelId: string }
+  }) => void
+}
+
+type ReviewCommandResult =
   | { output: ReviewOutput; modelId: string }
   | { cancelled: true }
-  | { sessionError: string }
-> {
+  | { error: string }
+
+export async function reviewCommand(
+  params: ReviewCommandParams,
+  deps = defaultDeps
+): Promise<ReviewCommandResult> {
   const { config, configError } = await deps.loadConfig()
   if (configError) {
     params.notify(
@@ -67,23 +74,32 @@ export async function reviewCommand(
           availableModelIds: params.availableModelIds,
         })
 
-  const { output, sessionError } = await deps.runReviewSession({
-    config,
-    cwd: params.cwd,
-    modelId,
-    taskPrompt,
-  })
+  const runSession = (runArgs: { signal?: AbortSignal }) =>
+    deps.runReviewSession({
+      config,
+      cwd: params.cwd,
+      modelId,
+      taskPrompt,
+      signal: runArgs.signal,
+    })
 
-  if (!output) {
-    const error = sessionError ?? 'Reviewer produced no structured output.'
-    params.notify(`Review failed: ${error}`, 'error')
-    return { sessionError: error }
+  const reviewSessionResult = params.hasUI
+    ? await params.runWithCancellableLoader({
+        description: `Running review with ${modelId}...`,
+        run: runSession,
+      })
+    : await runSession({})
+
+  if ('cancelled' in reviewSessionResult) {
+    return { cancelled: true }
   }
 
-  if (sessionError) {
-    params.notify(`Review session error: ${sessionError}`, 'error')
+  if ('error' in reviewSessionResult) {
+    params.notify(`Review failed: ${reviewSessionResult.error}`, 'error')
+    return { error: reviewSessionResult.error }
   }
 
+  const { output } = reviewSessionResult
   params.sendMessage({
     customType: 'review',
     content: formatReviewForContext({ output, cwd: params.cwd, modelId }),

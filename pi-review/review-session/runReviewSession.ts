@@ -1,3 +1,4 @@
+import { addAbortListener } from 'node:events'
 import {
   AuthStorage,
   createAgentSession,
@@ -33,11 +34,15 @@ export async function runReviewSession(params: {
   cwd: string
   modelId: string
   taskPrompt: string
-}): Promise<{
-  output: ReviewOutput | undefined
-  sessionError: string | undefined
-}> {
+  signal?: AbortSignal
+}): Promise<
+  { output: ReviewOutput } | { error: string } | { cancelled: true }
+> {
   const { config, cwd, modelId, taskPrompt } = params
+
+  if (params.signal?.aborted) {
+    return { cancelled: true }
+  }
 
   const [provider, ...rest] = modelId.split('/')
   const id = rest.join('/')
@@ -88,7 +93,7 @@ export async function runReviewSession(params: {
   }[] = []
   let sessionError: string | undefined
 
-  session.subscribe((event) => {
+  const unsubscribe = session.subscribe((event) => {
     if (event.type === 'tool_execution_end') {
       toolEndEvents.push({
         type: event.type,
@@ -110,27 +115,53 @@ export async function runReviewSession(params: {
     }
   })
 
+  let abortPromise: Promise<void> | undefined
+
+  await using _session = {
+    async [Symbol.asyncDispose]() {
+      unsubscribe()
+      await abortPromise?.catch(() => undefined)
+      session.dispose()
+    },
+  }
+
+  using _abortListener = params.signal
+    ? addAbortListener(params.signal, () => {
+        abortPromise = session.abort()
+      })
+    : undefined
+
+  if (params.signal?.aborted) {
+    return { cancelled: true }
+  }
+
   try {
     await session.prompt(taskPrompt)
-    const rootEntry = session.sessionManager.getEntries()[0]
-    if (rootEntry) {
-      session.sessionManager.appendLabelChange(rootEntry.id, 'review')
+  } catch (error) {
+    if (params.signal?.aborted) {
+      return { cancelled: true }
     }
-  } finally {
-    session.dispose()
+    throw error
+  }
+
+  if (params.signal?.aborted) {
+    return { cancelled: true }
+  }
+
+  const rootEntry = session.sessionManager.getEntries()[0]
+  if (rootEntry) {
+    session.sessionManager.appendLabelChange(rootEntry.id, 'review')
   }
 
   const output = extractReviewOutput(toolEndEvents)
-  return {
-    output: output
-      ? filterFindings({ output, thresholds: config.thresholds })
-      : undefined,
-    sessionError: output
-      ? undefined
-      : formatSessionError({
-          errorMessage: sessionError,
-          sessionId: sessionManager.getSessionId(),
-          sessionFile: sessionManager.getSessionFile(),
-        }),
+  if (!output) {
+    const error =
+      formatSessionError({
+        errorMessage: sessionError,
+        sessionId: sessionManager.getSessionId(),
+        sessionFile: sessionManager.getSessionFile(),
+      }) ?? 'Reviewer produced no structured output.'
+    return { error }
   }
+  return { output: filterFindings({ output, thresholds: config.thresholds }) }
 }

@@ -27,7 +27,6 @@ export const setupReviewCommand = configureHarnesses(
             overall_explanation: 'No issues found.',
             overall_confidence_score: 0.9,
           } as const,
-          sessionError: undefined,
         }),
       }
     )

@@ -4,6 +4,15 @@ import { setupReviewCommand } from './reviewCommand.harness'
 
 const setup = combineHarnesses(setupReviewCommand)
 
+function passthroughLoader<T>({
+  run,
+}: {
+  description: string
+  run: (runArgs: { signal: AbortSignal }) => Promise<T>
+}) {
+  return run({ signal: new AbortController().signal })
+}
+
 function reviewCommandParams(params: { args: string; hasUI: boolean }) {
   return {
     ...params,
@@ -17,6 +26,7 @@ function reviewCommandParams(params: { args: string; hasUI: boolean }) {
       throw new Error('Unexpected input call')
     },
     notify: vi.fn(),
+    runWithCancellableLoader: passthroughLoader,
     sendMessage: vi.fn(async () => {}),
   }
 }
@@ -42,10 +52,7 @@ describe('reviewCommand', () => {
       overall_confidence_score: 0.95,
     }
     await using harness = await setup({
-      runReviewSession: async () => ({
-        output: reviewOutput,
-        sessionError: undefined,
-      }),
+      runReviewSession: async () => ({ output: reviewOutput }),
     })
 
     const params = reviewCommandParams({
@@ -103,6 +110,7 @@ describe('reviewCommand', () => {
         throw new Error('Unexpected input call')
       },
       notify: vi.fn(),
+      runWithCancellableLoader: passthroughLoader,
       sendMessage: vi.fn(async () => {}),
     }
 
@@ -117,6 +125,50 @@ describe('reviewCommand', () => {
         ),
       })
     )
+  })
+
+  it('passes loader signal to runReviewSession', async () => {
+    await using harness = await setup()
+
+    const controller = new AbortController()
+    const params = {
+      ...reviewCommandParams({ args: 'check error handling', hasUI: true }),
+      runWithCancellableLoader: <T>({
+        run,
+      }: {
+        description: string
+        run: (runArgs: { signal: AbortSignal }) => Promise<T>
+      }) => run({ signal: controller.signal }),
+    }
+
+    await harness.reviewCommand(params)
+
+    expect(harness.runReviewSession).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal })
+    )
+  })
+
+  it('skips loader when hasUI is false', async () => {
+    await using harness = await setup({
+      pickTarget: async () => ({ type: 'uncommitted' as const }),
+    })
+
+    let loaderCalled = false
+    const params = {
+      ...reviewCommandParams({ args: '', hasUI: false }),
+      runWithCancellableLoader: <T>(args: {
+        description: string
+        run: (runArgs: { signal: AbortSignal }) => Promise<T>
+      }) => {
+        loaderCalled = true
+        return passthroughLoader(args)
+      },
+    }
+
+    await harness.reviewCommand(params)
+
+    expect(loaderCalled).toBe(false)
+    expect(harness.runReviewSession).toHaveBeenCalled()
   })
 
   it('notifies with config error before running review', async () => {
@@ -158,8 +210,7 @@ describe('reviewCommand', () => {
     await using harness = await setup({
       pickTarget: async () => ({ type: 'uncommitted' as const }),
       runReviewSession: async () => ({
-        output: undefined,
-        sessionError: 'An error occurred while processing your request.',
+        error: 'An error occurred while processing your request.',
       }),
     })
 
@@ -173,8 +224,22 @@ describe('reviewCommand', () => {
       'error'
     )
     expect(result).toEqual({
-      sessionError: 'An error occurred while processing your request.',
+      error: 'An error occurred while processing your request.',
     })
+    expect(params.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('cancelled review session returns cancelled without sending a review message', async () => {
+    await using harness = await setup({
+      pickTarget: async () => ({ type: 'uncommitted' as const }),
+      runReviewSession: async () => ({ cancelled: true as const }),
+    })
+
+    const params = reviewCommandParams({ args: '', hasUI: true })
+    const result = await harness.reviewCommand(params)
+
+    expect(result).toEqual({ cancelled: true })
+    expect(params.notify).not.toHaveBeenCalled()
     expect(params.sendMessage).not.toHaveBeenCalled()
   })
 })
