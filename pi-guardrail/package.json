@@ -1,0 +1,44 @@
+{
+  "name": "pi-guardrail",
+  "version": "0.1.0",
+  "description": "Pi extension: policy guardrail for LLM tool use (hand-hold / read-only modes)",
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@earendil-works/pi-tui": "*",
+    "@faker-js/faker": "^10.4.0",
+    "@total-typescript/shoehorn": "^0.1.2",
+    "@types/node": "^25.8.0",
+    "@types/shell-quote": "^1.7.5",
+    "foundation": "workspace:*",
+    "typebox": "*",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  },
+  "dependencies": {
+    "shell-quote": "^1.8.4",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
+  }
+}

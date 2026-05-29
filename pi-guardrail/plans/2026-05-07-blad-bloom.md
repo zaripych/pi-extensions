@@ -11,11 +11,12 @@ Human commands are outside guardrail policy. The mode is for LLM tool use only.
 
 `read-only` is a conservative LLM steering mode, not a filesystem
 write-prevention guarantee. Its default policy should avoid obvious
-project-mutating commands and known write-producing command forms, but it does
-not prove that an arbitrary shell command cannot write under every flag,
-expansion, or path choice. Path-level decisions such as allowing scratch writes
-under `/tmp/*` belong to `pi-sandbox` or to a future path-aware policy
-mechanism, not to the initial prefix classifier.
+project-mutating commands and known project write-producing command forms, but
+it does not prove that an arbitrary shell command cannot write under every flag,
+expansion, or path choice. Redirecting otherwise read-classified command output
+into the process scratch directory returned by `os.tmpdir()` is considered
+compatible with `read-only`; project write isolation remains the responsibility
+of `pi-sandbox`.
 
 ## Non-goals
 
@@ -28,11 +29,10 @@ mechanism, not to the initial prefix classifier.
   of `pi-sandbox`.
 - Bash classification may reject unsupported shell constructs as `bash:unknown`,
   but hacker-proof shell analysis is intentionally out of scope.
-- Initial bash classification is not path-aware. It does not distinguish writing
-  `/tmp/out.log` from overwriting an existing project file. Command forms with
-  known write-producing flags should therefore be excluded from `bash:read` by
-  default unless a future classifier can evaluate target paths against sandbox
-  or policy rules.
+- Initial bash classification is only path-aware for scratch redirects:
+  otherwise read-classified commands may redirect output under `os.tmpdir()`.
+  Other file redirects are classified as `bash:unknown`. Broader filesystem,
+  network, and process isolation remain the responsibility of `pi-sandbox`.
 - `pi-guardrail` does not aggressively poll Pi's tool registry or proactively
   disable tools registered later by other extensions. Late tools are handled
   lazily by `tool_call` enforcement so guardrail does not fight extension-owned
@@ -128,9 +128,11 @@ Mode validation:
 - `deny > ask > allow` for compound bash evaluation.
 - `read-only` means the model may use configured inspection tools and bash
   commands classified as `bash:read`; it does not guarantee that no filesystem
-  write can occur. The default policy still treats known write-producing forms
-  as non-read because the mode is intended to prevent routine model-initiated
-  project mutation.
+  write can occur. `bash:read` means the command does not appear to mutate
+  project files, not that it cannot write anywhere. Otherwise read-classified
+  commands may redirect output into `os.tmpdir()`. The default policy still
+  treats known project write-producing forms as non-read because the mode is
+  intended to prevent routine model-initiated project mutation.
 - Bare `bash` is invalid.
 - Valid bash capabilities:
   - `bash:read`
@@ -405,9 +407,11 @@ by default; they include mutating forms and remain `bash:unknown` unless the
 policy later adds explicitly narrowed read-oriented forms.
 
 Do not try to close every possible shell angle in the prefix classifier. The
-intended line is: exclude known write-producing forms that are visible in parsed
-static command parts, classify unsupported or ambiguous forms as `bash:unknown`,
-and leave real filesystem/path enforcement to `pi-sandbox`.
+intended line is: allow scratch redirects under `os.tmpdir()` for otherwise
+read-classified commands, exclude known project write-producing forms that are
+visible in parsed static command parts, classify unsupported or ambiguous forms
+as `bash:unknown`, and leave broader filesystem/path enforcement to
+`pi-sandbox`.
 
 `bash.read/write/dangerous[*].description` feeds system prompt guidance. Do not
 dump large command lists into the prompt.
@@ -465,13 +469,13 @@ implementation; a package CLI is optional.
 - Apply `except` checks only to parsed static command parts. Do not expand the
   classifier scope into shell-hardening; shell expansion bypass resistance is a
   non-goal for `pi-guardrail`.
-- Reject or classify unsafe redirects as `bash:unknown`, matching `assist`
-  behavior.
+- Redirects to `os.tmpdir()` are allowed for otherwise read-classified
+  commands. Other file redirects are classified as `bash:unknown`.
 - Add this comment in the redirect handling path:
 
 ```ts
-// Redirect handling intentionally mirrors assist's cliHook behavior:
-// unsafe file redirects make an otherwise read-looking command non-read-only.
+// Guardrail read-only permits scratch writes under os.tmpdir(); project
+// write isolation remains the responsibility of pi-sandbox.
 ```
 
 Classifier output:
@@ -660,6 +664,127 @@ bash:
 #   - gh alias
 ```
 
+### Phase 4.1 pivot — specificity-based cross-category bash matching
+
+This supersedes the cross-category overlap rejection rules in "Bash policy
+schema" and Phase 4. Everything implemented for Phases 0–4 stays as-is. From
+Phase 4.1 onward the classifier resolves cross-category overlaps by
+specificity instead of rejecting them at load time.
+
+Terminology change (Phase 4.1 onward): the per-command predicate `except` is
+replaced by `include` and `exclude`. `exclude` carries the former `except`
+meaning — a token whose presence blocks the match. `include` is new — a token
+that must be present for the match. Pre-4.1 sections in this document retain
+`except` as the historical record. The shipped default policy migrates
+`except: [--output]` to `exclude: [--output]`. `except` is not special-cased:
+after the rename it is an unrecognized key, rejected by the same strict-schema
+rule that rejects any unknown YAML field. That is a fatal schema error, so a
+file still using `except` puts the system in config-error deny-all mode and is
+reported as such by `/guardrail doctor`.
+
+```yaml
+bash:
+  read:
+    - name: git-read
+      description: Git commands treated as read-oriented by this policy.
+      commands:
+        - command: git diff
+          exclude:
+            - --output
+  dangerous:
+    - name: git-dangerous
+      description: Git commands treated as dangerous by this policy.
+      commands:
+        - command: git rebase
+          include:
+            - --force
+```
+
+A command entry matches a simple bash part only when all of these hold against
+the part's parsed static tokens:
+
+- the entry's `command` tokens match the start of the static tokens
+- every configured `include` token is present in the remaining static tokens
+- no configured `exclude` token is present in the remaining static tokens
+
+Token matching is exact, with flag-assignment support:
+
+- `--output` matches `--output`
+- `--output` matches `--output=patch`
+- `--output` does not match `--not-output`
+- `force` does not match `--force`
+
+Specificity is a per-entry constant:
+
+```text
+specificity = command prefix token count + include token count + exclude token count
+```
+
+It is constant because an entry only matches when all `include` tokens are
+present and all `exclude` tokens are absent, so every match contributes the
+full predicate counts. `exclude` therefore contributes to specificity exactly
+like `include`; a satisfied exclusion is a real constraint that was checked,
+not dead weight.
+
+Resolution considers all matching entries across `read`, `write`, and
+`dangerous`:
+
+- the entry with the highest specificity wins; the simple part takes that
+  entry's category
+- if two or more matching entries from different categories tie for the
+  highest specificity, the simple part is classified `bash:unknown`. There is
+  no new category and no special-case deny; existing unknown handling applies
+  (deny in `read-only`, ask in `hand-hold`)
+
+Example:
+
+```yaml
+bash:
+  read:
+    - name: broad-git
+      description: Broad git policy.
+      commands:
+        - git
+  dangerous:
+    - name: dangerous-git-rebase
+      description: Force rebases are dangerous.
+      commands:
+        - command: git rebase
+          include:
+            - --force
+```
+
+```sh
+git status
+# matches "git" only, score 1
+# => bash:read
+
+git rebase --force
+# matches "git", score 1
+# matches "git rebase" + "--force", score 3
+# => bash:dangerous
+```
+
+Because specificity is a per-entry constant, doctor detects cross-category
+ambiguity statically. Doctor reports a pair of entries in different categories
+when both:
+
+- they are co-matchable: one entry's command prefix is a token-prefix of the
+  other's, and neither entry's `exclude` blocks the other entry's `include`
+  (if an `exclude` on one entry is the `include` of the other, they are
+  mutually exclusive and never collide)
+- their specificity is equal
+
+Doctor no longer reports a cross-category overlap as invalid merely because
+one prefix is a parent of another. For each reported ambiguity it shows the
+YAML paths, categories, command prefixes, and `include`/`exclude` predicates
+of the entries, and the reason a unique category cannot be selected.
+
+The shipped default policy prefers narrow read-oriented entries such as
+`git status`, `git log`, `git show`, `git diff`, and `git rev-parse`. A broad
+executable-level read entry such as bare `git` is permitted by the policy
+language but is not used in the default policy.
+
 ## Implementation plan
 
 The plan describes the system as a sequence of **product behaviors** —
@@ -796,10 +921,20 @@ Bash prompts and session grants:
 - `/guardrail reload` re-reads configuration, applies it, and clears
   session grants. The user sees the same diagnostics as at startup.
 - `/guardrail read-only` and `/guardrail hand-hold` switch modes and
-  clear session grants. They are unavailable in `config-error deny-all
-mode`.
+  clear session grants when the system is running normally. In
+  `config-error deny-all mode`, they retry loading the configuration for the
+  requested mode; if loading fails again, the system remains in
+  `config-error deny-all mode` for that requested mode.
 
 ### Phase 4 — Cross-category overlap rejection
+
+> Superseded by Phase 4.1. The rejection model below was implemented and
+> shipped, then pivoted: from Phase 4.1 onward cross-category overlaps are
+> resolved by specificity instead of rejected. The behaviors below are kept
+> as the historical record of what Phases 0–4 built; see
+> "Phase 4.1 pivot — specificity-based cross-category bash matching" in
+> Resolved decisions and "Phase 4.1" in the Implementation plan for the
+> current model.
 
 - When two configured bash prefixes overlap across different
   categories (read, write, dangerous), both are rejected as one
@@ -817,6 +952,65 @@ mode`.
   each cross-category conflict. Doctor never modifies configuration;
   if the user has no configuration file, doctor reports what startup
   or reload would create rather than creating it.
+
+### Phase 4.1 — Specificity-based cross-category bash matching
+
+This phase pivots the bash classifier away from Phase 4's
+cross-category overlap rejection. Overlaps that Phase 4 rejected are
+now resolved by specificity. Phases 0–4 remain as implemented; the
+behaviors below supersede Phase 4's rejection behaviors where they
+conflict.
+
+Token predicates (observable through classification and enforcement):
+
+- A command entry that configures `include` tokens matches a bash
+  command only when every configured `include` token is present among
+  that command's parsed static arguments.
+- A command entry that configures `exclude` tokens does not match when
+  any configured `exclude` token is present among the command's parsed
+  static arguments.
+- Token matching is exact and understands flag assignment: a token like
+  `--output` matches `--output` and `--output=patch`, but not
+  `--not-output`; a bare token like `force` does not match `--force`.
+
+Specificity resolution:
+
+- When a bash command matches entries in more than one category, the
+  most specific matching entry wins, and the command is classified into
+  that entry's category and enforced accordingly.
+- A command that matches only a broad prefix entry is classified into
+  that broad entry's category (e.g. with a read entry `git`,
+  `git status` classifies as `bash:read`).
+- A narrower entry in one category overrides a broader entry in a
+  different category (e.g. a dangerous entry `git rebase` requiring
+  `--force` beats a read entry `git`, so `git rebase --force`
+  classifies as `bash:dangerous`).
+- When two or more matching entries from different categories tie for
+  the highest specificity on a simple part, that simple part is
+  classified as `bash:unknown`.
+
+Doctor and guidance:
+
+- `/guardrail doctor` no longer reports a cross-category overlap as
+  invalid merely because one entry's prefix is a parent of another's.
+- `/guardrail doctor` reports cross-category ambiguities that
+  specificity cannot resolve — pairs of co-matchable entries in
+  different categories with equal specificity — including each entry's
+  YAML path, category, command prefix, and `include`/`exclude`
+  predicates, and the reason a unique category cannot be selected.
+
+Default policy and terminology:
+
+- With no prior user configuration, the shipped default policy
+  classifies `git status`, `git log`, `git show`, `git diff`, and
+  `git rev-parse` as `bash:read`, and does not classify a bare `git`
+  command as read (e.g. `git push` is not `bash:read` under the
+  default).
+- The shipped default policy uses `exclude` (not `except`) for blocking
+  tokens from Phase 4.1 onward. A configuration that still uses the
+  pre-4.1 `except` predicate is rejected as an unknown field by the
+  same rule that rejects any unrecognized YAML key, placing the system
+  in config-error deny-all mode.
 
 ### Phase 5 — Non-bash tool enforcement
 
@@ -841,7 +1035,7 @@ Enforcement behaviors:
 ### Phase 6 — Human commands
 
 - `/guardrail` and `/guardrail status` tell the user the current mode,
-  whether any configuration entries were rejected, and whether the
+  whether any configuration entries are flagged ambiguous, and whether the
   system is in `config-error deny-all mode`.
 - `/guardrail off` restores the tool set the user had before guardrail
   activated (filtered to currently registered tools). Available in
@@ -862,7 +1056,6 @@ reload`, the new policy takes effect.
   approval-required calls and to assume an unsure bash command
   requires approval.
 - The guidance never contains long command lists.
-- Rejected configuration entries never appear in the guidance.
 - In `config-error deny-all mode`, the guidance reflects the deny-all
   state.
 
