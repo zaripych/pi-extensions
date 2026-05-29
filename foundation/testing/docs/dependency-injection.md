@@ -2,13 +2,22 @@
 
 ## Precondition
 
-Do not introduce seams before you have a test that needs them. You cannot know
-the right dependency boundaries until a test forces you to inject something. If
-you write the implementation first, call dependencies directly — no
-`defaultDeps`, no `deps` parameter. When you later write a test that needs to
-replace one of those calls, come back and introduce the seam at that point.
-Speculative seams based on what _might_ need mocking lead to wrong abstractions
-and wasted harness work.
+Do not introduce seams before you have a test or harness that needs them. You
+cannot know the right dependency boundaries until a test forces you to inject
+something.
+
+If an imported dependency already has a harness, that dependency is an
+established seam. Any module that calls it should include it in `defaultDeps` so
+the dependency's harness can be composed and its mocked effects propagate
+through higher-level tests. Without this, integration tests that replace the
+dependency through its harness will silently bypass the replacement in callers
+that imported it directly.
+
+If an imported dependency does not have a harness and no current test needs to
+replace it, call it directly — no `defaultDeps`, no `deps` parameter. When a
+test later needs to replace that dependency, introduce the harness and the
+`defaultDeps` seam in the same change. Speculative seams based only on what
+_might_ need mocking lead to wrong abstractions and wasted harness work.
 
 ## Overview
 
@@ -24,10 +33,13 @@ state between tests.
 2. **Test-only seam.** Production code never passes custom deps. The `deps`
    parameter exists exclusively for tests.
 3. **Justify every seam.** Each entry in `defaultDeps` must exist because tests
-   need to replace it. If no test mocks a dependency, it shouldn't be a seam —
-   call it directly or fold it into another dep's default implementation. When a
-   dep is justified, shape its interface (params and return type) to what the
-   consumer actually uses, not the full API of the underlying implementation.
+   or harnesses need to replace it. An imported dependency with its own harness
+   is already justified and should be included in `defaultDeps` by callers so
+   harness composition works through higher-level tests. If no test or harness
+   replaces a dependency, it should not be a seam — call it directly or fold it
+   into another dep's default implementation. When a dep is justified, shape its
+   interface (params and return type) to what the consumer actually uses, not the
+   full API of the underlying implementation.
 4. **Not for polymorphic behavior in production.** Do not use `deps` to
    implement feature flags, environment branching, or runtime strategy selection
    in production code.
@@ -57,11 +69,9 @@ const defaultDeps = {
   db: () => database,
 }
 
-type Deps = typeof defaultDeps
-
 export async function getTenantById(
   params: { id: string },
-  deps: Deps = defaultDeps
+  deps = defaultDeps
 ) {
   const db = deps.db()
   // ...
@@ -107,14 +117,12 @@ const defaultDeps = {
   getClient: () => someClient,
 }
 
-type Deps = typeof defaultDeps
-
 export class TenantService {
   static defaultDeps = defaultDeps
 
   constructor(
     private readonly config: { region: string },
-    private readonly deps: Deps = defaultDeps
+    private readonly deps = defaultDeps
   ) {}
 
   async findTenant(id: string) {
@@ -152,6 +160,77 @@ const defaultDeps = { db: database }
 ```ts
 // BAD — mutates shared module state, leaks between tests
 vi.spyOn(getTenantById.defaultDeps, 'db').mockReturnValue(mockDb)
+```
+
+### ❌ Turning deps into params, or params into deps
+
+Dependencies must be injected only as properties of `defaultDeps`. Do not turn a
+replaceable dependency into a normal parameter just to avoid adding it to
+`defaultDeps`. This makes call sites responsible for dependency wiring and
+breaks harness composition.
+
+```ts
+// BAD — sendReceipt is a dependency disguised as a parameter
+export async function checkout(params: {
+  cartId: string
+  sendReceipt: (params: { cartId: string }) => Promise<void>
+}) {
+  await params.sendReceipt({ cartId: params.cartId })
+}
+
+// GOOD — sendReceipt is a dependency seam
+const defaultDeps = { sendReceipt }
+
+export async function checkout(params: { cartId: string }, deps = defaultDeps) {
+  await deps.sendReceipt({ cartId: params.cartId })
+}
+
+checkout.defaultDeps = defaultDeps
+```
+
+Do not hide the same mistake by wrapping one dep inside a parameter callback. If
+the callback exists only to call another dependency, the underlying dependency
+belongs in the callee's `defaultDeps`.
+
+```ts
+const defaultDeps = { reserveInventory }
+
+// BAD — inventory reservation is smuggled through params
+export async function checkout(
+  params: {
+    cartId: string
+    reserve: (params: { cartId: string }) => Promise<void>
+  },
+  deps = defaultDeps
+) {
+  await params.reserve({ cartId: params.cartId })
+}
+
+const submitOrderDeps = { reserveInventory }
+
+export async function submitOrder(
+  params: { cartId: string },
+  deps = submitOrderDeps
+) {
+  await checkout({
+    cartId: params.cartId,
+    reserve: (params) => deps.reserveInventory(params),
+  })
+}
+
+submitOrder.defaultDeps = submitOrderDeps
+
+// GOOD — reserveInventory is explicit in checkout.defaultDeps
+const checkoutDeps = { reserveInventory }
+
+export async function checkout(
+  params: { cartId: string },
+  deps = checkoutDeps
+) {
+  await deps.reserveInventory({ cartId: params.cartId })
+}
+
+checkout.defaultDeps = checkoutDeps
 ```
 
 ### ❌ Stubs in `defaultDeps`
@@ -242,10 +321,7 @@ const defaultDeps = {
   getUserProfile,
 }
 
-async function sendReminder(
-  params: { userId: string },
-  deps: Deps = defaultDeps
-) {
+async function sendReminder(params: { userId: string }, deps = defaultDeps) {
   const profile = await deps.getUserProfile({ id: params.userId })
   await send({ to: profile.emailAddress, body: '...' })
 }
@@ -303,7 +379,7 @@ const defaultDeps = {
 
 export async function sendEmail(
   params: { to: string; subject: string; html: string },
-  deps: Deps = defaultDeps
+  deps = defaultDeps
 ) {
   await deps.sendMail(params)
 }
@@ -347,7 +423,7 @@ const defaultDeps = {
   fetchHealthStatus,
 }
 
-async function checkService(params: { env: string }, deps: Deps = defaultDeps) {
+async function checkService(params: { env: string }, deps = defaultDeps) {
   const endpoint = deps.resolveEndpoint({ env: params.env })
   return deps.fetchHealthStatus({ url: endpoint.url })
 }
@@ -391,7 +467,7 @@ const defaultDeps = { sendMessage }
 
 export async function notifyByEmail(
   params: { userId: string; locale: string; body: string },
-  deps: Deps = defaultDeps
+  deps = defaultDeps
 ) {
   const formatted = formatForEmail({
     body: params.body,
@@ -408,7 +484,7 @@ notifyByEmail.defaultDeps = defaultDeps
 
 export async function notifyBySms(
   params: { userId: string; locale: string; body: string },
-  deps: Deps = defaultDeps
+  deps = defaultDeps
 ) {
   const formatted = formatForSms({ body: params.body, locale: params.locale })
   await deps.sendMessage({
@@ -434,7 +510,7 @@ const defaultDeps = { sendMessage }
 
 export function createNotifier(
   params: { userId: string; locale: string },
-  deps: Deps = defaultDeps
+  deps = defaultDeps
 ) {
   const { userId, locale } = params
 

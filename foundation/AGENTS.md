@@ -64,14 +64,26 @@ You can also run each step individually.
 
   Functions with exactly one input value may take that value directly when the
   function name makes the parameter role obvious, e.g. `ensureTruthy(value)`,
-  `ensureDefined(value)`, `parseJson(value)`. If a second parameter is ever
-  needed, refactor to a named params object as the first parameter and `deps` as
-  the optional second parameter.
+  `ensureDefined(value)`, `parseJson(value)`. A single cohesive object may also
+  be passed directly when the object has its own clear named concept, not when it
+  is just a loose bag of unrelated parameters.
 
   ```ts
   // GOOD — single obvious input value
   ensureTruthy(value)
+
+  // GOOD — single cohesive object with a clear named concept
+  renderInvoice(invoice)
+
+  // BAD — primitive flag is opaque at the call site
+  deleteProject(false)
+
+  // GOOD — flag meaning is explicit
+  deleteProject({ forceDelete: false })
   ```
+
+  If a second parameter is ever needed, refactor to a named params object as the
+  first parameter and `deps` as the optional second parameter.
 
 - **No excessive comments.** Function and variable names should be descriptive
   and tell the story. Do not add comments that restate what the code already
@@ -140,8 +152,8 @@ You can also run each step individually.
 
 ## Dependency Injection
 
-Use the `deps` second-parameter pattern for all new functions and classes that
-have external dependencies (database, external clients, etc.). See
+Use the `deps` second-parameter pattern for functions and classes only when the
+Dependency Injection spec calls for it. See
 [\*\*/testing/docs/dependency-injection.md](testing/docs/dependency-injection.md)
 for the full spec, rules, and examples.
 
