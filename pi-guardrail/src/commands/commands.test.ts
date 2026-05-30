@@ -1,9 +1,11 @@
 import { combineHarnesses } from 'foundation/testing/harness/combineHarnesses'
 import { describe, expect, it } from 'vitest'
+import { defaultPolicyYaml } from '../config/defaultPolicyYaml'
 import { setupRegisterGuardrail } from '../register.harness'
 import {
   fakeBashToolCallEvent,
   fakeReadToolCallEvent,
+  fakeSessionStartEvent,
   setupPiHarness,
 } from '../testing/pi.harness'
 
@@ -541,6 +543,258 @@ bash:
         level: 'warning',
         message: expect.stringContaining('/guardrail doctor'),
       },
+    ])
+  })
+
+  it('restores the pre-activation tool set filtered to registered tools when /guardrail off is run', async () => {
+    const registered = ['read', 'grep', 'find', 'ls', 'write', 'edit', 'bash']
+    await using harness = await setup({
+      getFlag: () => 'read-only',
+      getAllTools: () => [...registered],
+    })
+    const {
+      pi,
+      registerGuardrail,
+      sessionStart,
+      runCommand,
+      toolCall,
+      activeTools,
+    } = harness
+
+    await registerGuardrail({ pi })
+    await sessionStart(fakeSessionStartEvent())
+    await runCommand('guardrail', 'off')
+
+    expect(activeTools()).toEqual([
+      'read',
+      'grep',
+      'find',
+      'ls',
+      'write',
+      'edit',
+      'bash',
+    ])
+    const result = await toolCall(
+      fakeBashToolCallEvent({ command: 'npm install' })
+    )
+    expect(result).toBeUndefined()
+  })
+
+  it('restores the tools active before the most recent activation, not the first, across off and re-enable cycles', async () => {
+    const registered = ['read', 'grep', 'find', 'ls', 'write', 'edit', 'bash']
+    await using harness = await setup({
+      getFlag: () => 'read-only',
+      getAllTools: () => [...registered],
+    })
+    const { pi, registerGuardrail, sessionStart, runCommand, activeTools } =
+      harness
+
+    await registerGuardrail({ pi })
+    await sessionStart(fakeSessionStartEvent())
+    await runCommand('guardrail', 'off')
+
+    // A user or another extension changes the active tool set while guardrail
+    // is off. Re-enabling and disabling again must restore this set, not the
+    // tools captured at the first activation.
+    pi.setActiveTools(['read', 'grep'])
+    await runCommand('guardrail', 'read-only')
+    await runCommand('guardrail', 'off')
+
+    expect(activeTools()).toEqual(['read', 'grep'])
+  })
+
+  it('disables enforcement when /guardrail off is run in config-error deny-all mode', async () => {
+    await using harness = await setup({
+      getFlag: () => 'read-only',
+      fileExists: async () => true,
+      readFile: async () => {
+        throw new Error('EACCES: permission denied')
+      },
+    })
+    const { pi, registerGuardrail, runCommand, toolCall } = harness
+
+    await registerGuardrail({ pi })
+    await runCommand('guardrail', 'off')
+    const result = await toolCall(
+      fakeBashToolCallEvent({ command: 'npm install' })
+    )
+
+    expect(result).toBeUndefined()
+  })
+
+  it('switches to read-only mode when the /read-only alias is run', async () => {
+    await using harness = await setup({ getFlag: () => 'hand-hold' })
+    const { pi, registerGuardrail, runCommand, toolCall } = harness
+
+    await registerGuardrail({ pi })
+    await runCommand('read-only', '')
+    const result = await toolCall(
+      fakeBashToolCallEvent({ command: 'npm install' })
+    )
+
+    expect(result).toEqual({
+      block: true,
+      reason: expect.stringContaining('read-only'),
+      reasonCode: 'policy-deny',
+    })
+  })
+
+  it('switches to hand-hold mode when the /hand-hold alias is run', async () => {
+    await using harness = await setup({
+      getFlag: () => 'read-only',
+      respondToSelect: () => 'Abort',
+    })
+    const { pi, registerGuardrail, runCommand, toolCall, selectPrompts } =
+      harness
+
+    await registerGuardrail({ pi })
+    await runCommand('hand-hold', '')
+    await toolCall(fakeBashToolCallEvent({ command: 'npm install' }))
+
+    expect(selectPrompts).toHaveLength(1)
+  })
+
+  it('overwrites the config with the shipped default after confirmation when /guardrail reset-to-default is run', async () => {
+    await using harness = await setup({
+      getFlag: () => 'hand-hold',
+      respondToConfirm: () => true,
+    })
+    const { pi, registerGuardrail, runCommand, writeFile, readFile, configPath } =
+      harness
+    await writeFile(configPath, 'modes: [not, a, mapping]\n')
+
+    await registerGuardrail({ pi })
+    await runCommand('guardrail', 'reset-to-default')
+
+    expect(await readFile(configPath)).toEqual(defaultPolicyYaml)
+  })
+
+  it('leaves the config untouched when /guardrail reset-to-default is not confirmed', async () => {
+    await using harness = await setup({
+      getFlag: () => 'hand-hold',
+      respondToConfirm: () => false,
+    })
+    const { pi, registerGuardrail, runCommand, writeFile, readFile, configPath } =
+      harness
+    const original = 'modes: [not, a, mapping]\n'
+    await writeFile(configPath, original)
+
+    await registerGuardrail({ pi })
+    await runCommand('guardrail', 'reset-to-default')
+
+    expect(await readFile(configPath)).toEqual(original)
+  })
+
+  it('reports the current mode when /guardrail status is run while running normally', async () => {
+    await using harness = await setup({ getFlag: () => 'hand-hold' })
+    const { pi, registerGuardrail, runCommand, notifications } = harness
+
+    await registerGuardrail({ pi })
+    notifications.length = 0
+    await runCommand('guardrail', 'status')
+
+    expect(notifications).toEqual([
+      { message: expect.stringContaining('hand-hold'), level: 'info' },
+    ])
+  })
+
+  it('reports the current mode when bare /guardrail is run', async () => {
+    await using harness = await setup({ getFlag: () => 'read-only' })
+    const { pi, registerGuardrail, runCommand, notifications } = harness
+
+    await registerGuardrail({ pi })
+    notifications.length = 0
+    await runCommand('guardrail', '')
+
+    expect(notifications).toEqual([
+      { message: expect.stringContaining('read-only'), level: 'info' },
+    ])
+  })
+
+  it('reports that guardrail is off when /guardrail status is run with --guardrail off', async () => {
+    await using harness = await setup({ getFlag: () => 'off' })
+    const { pi, registerGuardrail, runCommand, notifications } = harness
+
+    await registerGuardrail({ pi })
+    notifications.length = 0
+    await runCommand('guardrail', 'status')
+
+    expect(notifications).toEqual([
+      { message: expect.stringContaining('off'), level: 'info' },
+    ])
+  })
+
+  it('reports config-error deny-all mode when /guardrail status is run on a broken policy', async () => {
+    await using harness = await setup({
+      getFlag: () => 'read-only',
+      fileExists: async () => true,
+      readFile: async () => {
+        throw new Error('EACCES: permission denied')
+      },
+    })
+    const { pi, registerGuardrail, runCommand, notifications } = harness
+
+    await registerGuardrail({ pi })
+    notifications.length = 0
+    await runCommand('guardrail', 'status')
+
+    expect(notifications).toEqual([
+      { message: expect.stringContaining('config-error'), level: 'error' },
+    ])
+  })
+
+  it('reports the invalid flag error, not a config error, when /guardrail status is run after an invalid --guardrail value', async () => {
+    await using harness = await setup({ getFlag: () => 'nonsense' })
+    const { pi, registerGuardrail, runCommand, notifications } = harness
+
+    await registerGuardrail({ pi })
+    notifications.length = 0
+    await runCommand('guardrail', 'status')
+
+    expect(notifications).toEqual([
+      {
+        message: expect.stringContaining('Invalid --guardrail value'),
+        level: 'error',
+      },
+    ])
+    expect(notifications[0]?.message).not.toContain('config-error')
+  })
+
+  it('flags ambiguous configuration entries when /guardrail status is run on a policy with cross-category ambiguities', async () => {
+    await using harness = await setup({ getFlag: () => 'hand-hold' })
+    const {
+      pi,
+      registerGuardrail,
+      runCommand,
+      writeFile,
+      configPath,
+      notifications,
+    } = harness
+
+    await registerGuardrail({ pi })
+    await writeFile(
+      configPath,
+      `modes:
+  read-only: { allow: ["bash:read"], ask: [], deny: ["bash:write", "bash:dangerous"] }
+  hand-hold: { allow: ["bash:read"], ask: ["bash:write", "bash:dangerous"], deny: [] }
+bash:
+  read:
+    - name: ambiguous-read
+      description: read stash
+      commands: [git stash]
+  write: []
+  dangerous:
+    - name: ambiguous-dangerous
+      description: dangerous stash
+      commands: [git stash]
+`
+    )
+    await runCommand('guardrail', 'reload')
+    notifications.length = 0
+    await runCommand('guardrail', 'status')
+
+    expect(notifications).toEqual([
+      { message: expect.stringContaining('ambiguous'), level: 'warning' },
     ])
   })
 

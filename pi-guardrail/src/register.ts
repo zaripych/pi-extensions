@@ -31,6 +31,18 @@ export async function registerGuardrail(
       await guardrail.handleGuardrailCommand({ args, ctx })
     },
   })
+  params.pi.registerCommand('read-only', {
+    description: 'Alias for /guardrail read-only.',
+    handler: async (_args, ctx) => {
+      await guardrail.handleGuardrailCommand({ args: 'read-only', ctx })
+    },
+  })
+  params.pi.registerCommand('hand-hold', {
+    description: 'Alias for /guardrail hand-hold.',
+    handler: async (_args, ctx) => {
+      await guardrail.handleGuardrailCommand({ args: 'hand-hold', ctx })
+    },
+  })
 }
 
 registerGuardrail.defaultDeps = defaultDeps

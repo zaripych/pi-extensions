@@ -127,6 +127,17 @@ export async function loadPolicy(
   }
 }
 
+export async function resetPolicyToDefault(
+  deps = defaultDeps
+): Promise<{ configPath: string }> {
+  const configPath = deps.getConfigPath()
+  await deps.mkdir(dirname(configPath))
+  await deps.writeFile(configPath, defaultPolicyYaml)
+  return { configPath }
+}
+
+resetPolicyToDefault.defaultDeps = defaultDeps
+
 export type InspectPolicyResult =
   | { readonly status: 'missing'; readonly configPath: string }
   | {

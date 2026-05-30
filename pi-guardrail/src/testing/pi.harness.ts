@@ -59,11 +59,13 @@ type SelectResponder = (
 const testDeps: {
   getFlag: ExtensionAPI['getFlag']
   respondToSelect: SelectResponder
+  respondToConfirm: () => boolean
   hasUI: () => boolean
   getAllTools: () => string[]
 } = {
   getFlag: () => undefined,
   respondToSelect: () => undefined,
+  respondToConfirm: () => false,
   hasUI: () => true,
   getAllTools: () => ['read', 'grep', 'find', 'ls', 'write', 'edit', 'bash'],
 }
@@ -76,12 +78,14 @@ export const setupPiHarness = configureHarnesses(
       {
         getFlag: () => undefined,
         respondToSelect: () => undefined,
+        respondToConfirm: () => false,
         hasUI: () => true,
         getAllTools: () => ['read', 'grep', 'find', 'ls', 'write', 'edit', 'bash'],
       }
     ),
   async (userDeps) => {
-    const { getFlag, respondToSelect, hasUI, getAllTools } = userDeps
+    const { getFlag, respondToSelect, respondToConfirm, hasUI, getAllTools } =
+      userDeps
     const registeredFlags: RegisteredFlag[] = []
     const registeredCommands = new Map<string, RegisteredCommand>()
     const notifications: Notification[] = []
@@ -123,8 +127,14 @@ export const setupPiHarness = configureHarnesses(
       return respondToSelect(title, options)
     }
 
+    const confirmPrompts: { title: string; message: string }[] = []
+    const confirm: ExtensionUIContext['confirm'] = async (title, message) => {
+      confirmPrompts.push({ title, message })
+      return respondToConfirm()
+    }
+
     const ctx = fromPartial<ExtensionContext>({
-      ui: fromPartial({ notify, select }),
+      ui: fromPartial({ notify, select, confirm }),
       get hasUI() {
         return hasUI()
       },
@@ -153,6 +163,11 @@ export const setupPiHarness = configureHarnesses(
       activeToolsCalls.push([...toolNames])
     }
 
+    const getActiveTools: ExtensionAPI['getActiveTools'] = () => {
+      assertRuntimeActive()
+      return activeToolsCalls.at(-1) ?? getAllTools()
+    }
+
     const pi = fromPartial<ExtensionAPI>({
       registerFlag,
       registerCommand,
@@ -160,6 +175,7 @@ export const setupPiHarness = configureHarnesses(
       on,
       getAllTools: getAllToolsImpl,
       setActiveTools,
+      getActiveTools,
     })
 
     async function toolCall(
@@ -205,6 +221,7 @@ export const setupPiHarness = configureHarnesses(
       registeredFlags,
       registeredCommands,
       selectPrompts,
+      confirmPrompts,
       activeToolsCalls,
       activeTools: () => activeToolsCalls.at(-1),
     }

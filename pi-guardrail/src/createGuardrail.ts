@@ -23,7 +23,10 @@ const defaultDeps = {
   handleGuardrailCommand,
 }
 
-type GuardrailPi = Pick<ExtensionAPI, 'getAllTools' | 'setActiveTools'>
+type GuardrailPi = Pick<
+  ExtensionAPI,
+  'getAllTools' | 'setActiveTools' | 'getActiveTools'
+>
 
 export async function createGuardrail(
   params: {
@@ -33,6 +36,11 @@ export async function createGuardrail(
   deps = defaultDeps
 ) {
   let context: GuardrailContext = { status: 'off' }
+
+  // The active tool set as it was before guardrail first narrowed it. Captured
+  // once, just before the first narrowing, so `/guardrail off` can restore what
+  // the user had before guardrail activated.
+  let baselineActiveTools: readonly string[] | undefined
 
   // pi's runtime-bound action methods (getAllTools/setActiveTools) throw during
   // extension loading, so the load path must not touch them. It only loads the
@@ -57,6 +65,9 @@ export async function createGuardrail(
 
   function applyActiveTools(): void {
     if (context.status === 'off') return
+    if (baselineActiveTools === undefined) {
+      baselineActiveTools = params.pi.getActiveTools()
+    }
     if (isFailedContext(context)) {
       params.pi.setActiveTools([])
       return
@@ -88,9 +99,18 @@ export async function createGuardrail(
     applyActiveTools()
   }
 
-  // Not yet wired to a /guardrail subcommand. Reserved for a future
-  // `/guardrail off` that lets the user disable enforcement at runtime.
   function disable(): void {
+    if (baselineActiveTools !== undefined) {
+      const registered = new Set(
+        params.pi.getAllTools().map((tool) => tool.name)
+      )
+      params.pi.setActiveTools(
+        baselineActiveTools.filter((name) => registered.has(name))
+      )
+    }
+    // Drop the baseline so the next activation recaptures whatever tools are
+    // active then, preserving user/extension changes made while guardrail off.
+    baselineActiveTools = undefined
     context = { status: 'off' }
   }
 

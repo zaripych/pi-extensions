@@ -4,11 +4,17 @@ import {
   type InspectPolicyResult,
   inspectPolicy,
   type PolicyDiagnostic,
+  resetPolicyToDefault,
 } from '../config/loadPolicy'
-import { type GuardrailRuntime, isFailedContext } from '../types'
+import {
+  type GuardrailContext,
+  type GuardrailRuntime,
+  isFailedContext,
+} from '../types'
 
 const defaultDeps = {
   inspectPolicy,
+  resetPolicyToDefault,
 }
 
 export async function handleGuardrailCommand(
@@ -21,6 +27,37 @@ export async function handleGuardrailCommand(
 ): Promise<void> {
   const { runtime } = params
   const subcommand = params.args.trim()
+
+  if (subcommand === '' || subcommand === 'status') {
+    notifyStatus({ ctx: params.ctx, context: runtime.getContext() })
+    return
+  }
+
+  if (subcommand === 'reset-to-default') {
+    const confirmed = await params.ctx.ui.confirm(
+      'Reset guardrail policy?',
+      'This overwrites ~/.pi/agent/guardrail.yaml with the shipped default. Your current policy will be lost.'
+    )
+    if (!confirmed) {
+      params.ctx.ui.notify('pi-guardrail: reset-to-default cancelled.', 'info')
+      return
+    }
+    const { configPath } = await deps.resetPolicyToDefault()
+    params.ctx.ui.notify(
+      `pi-guardrail: wrote the shipped default policy to ${configPath}. Run /guardrail reload to apply it.`,
+      'info'
+    )
+    return
+  }
+
+  if (subcommand === 'off') {
+    runtime.disable()
+    params.ctx.ui.notify(
+      'pi-guardrail: off. Enforcement is disabled for the model.',
+      'info'
+    )
+    return
+  }
 
   if (subcommand === 'doctor') {
     const inspection = await deps.inspectPolicy()
@@ -78,6 +115,46 @@ export async function handleGuardrailCommand(
 }
 
 handleGuardrailCommand.defaultDeps = defaultDeps
+
+function notifyStatus(params: {
+  ctx: ExtensionCommandContext
+  context: GuardrailContext
+}): void {
+  const { ctx, context } = params
+  if (context.status === 'off') {
+    ctx.ui.notify(
+      'pi-guardrail: off. Enforcement is disabled for the model.',
+      'info'
+    )
+    return
+  }
+  if (context.status === 'fail-closed') {
+    ctx.ui.notify(
+      `pi-guardrail: deny-all mode. Every model tool call is denied.\n\n${context.error}`,
+      'error'
+    )
+    return
+  }
+  if (context.status === 'policy-error') {
+    ctx.ui.notify(
+      `pi-guardrail: config-error deny-all mode. Every model tool call is denied.\n\n${context.error}`,
+      'error'
+    )
+    return
+  }
+  if (context.diagnostics.length > 0) {
+    const count = context.diagnostics.length
+    ctx.ui.notify(
+      `pi-guardrail: mode ${context.mode}. ${count} configuration entr${count === 1 ? 'y is' : 'ies are'} flagged ambiguous; run /guardrail doctor for details.`,
+      'warning'
+    )
+    return
+  }
+  ctx.ui.notify(
+    `pi-guardrail: mode ${context.mode}. Policy ok.`,
+    'info'
+  )
+}
 
 function notifyDoctorResult(params: {
   ctx: ExtensionCommandContext
