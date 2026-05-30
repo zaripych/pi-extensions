@@ -16,6 +16,7 @@ export async function registerGuardrail(
 
   const guardrail = await deps.createGuardrail({
     guardrailFlag: params.pi.getFlag('guardrail'),
+    pi: params.pi,
   })
 
   params.pi.on('tool_call', (event, ctx) =>

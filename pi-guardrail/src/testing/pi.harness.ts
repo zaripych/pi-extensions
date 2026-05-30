@@ -8,6 +8,7 @@ import type {
   SessionStartEvent,
   ToolCallEvent,
   ToolCallEventResult,
+  ToolInfo,
   WriteToolCallEvent,
 } from '@earendil-works/pi-coding-agent'
 import { faker } from '@faker-js/faker'
@@ -59,10 +60,12 @@ const testDeps: {
   getFlag: ExtensionAPI['getFlag']
   respondToSelect: SelectResponder
   hasUI: () => boolean
+  getAllTools: () => string[]
 } = {
   getFlag: () => undefined,
   respondToSelect: () => undefined,
   hasUI: () => true,
+  getAllTools: () => ['read', 'grep', 'find', 'ls', 'write', 'edit', 'bash'],
 }
 
 export const setupPiHarness = configureHarnesses(
@@ -74,16 +77,31 @@ export const setupPiHarness = configureHarnesses(
         getFlag: () => undefined,
         respondToSelect: () => undefined,
         hasUI: () => true,
+        getAllTools: () => ['read', 'grep', 'find', 'ls', 'write', 'edit', 'bash'],
       }
     ),
   async (userDeps) => {
-    const { getFlag, respondToSelect, hasUI } = userDeps
+    const { getFlag, respondToSelect, hasUI, getAllTools } = userDeps
     const registeredFlags: RegisteredFlag[] = []
     const registeredCommands = new Map<string, RegisteredCommand>()
     const notifications: Notification[] = []
     const toolCallListeners: ToolCallListener[] = []
     const sessionStartListeners: SessionStartListener[] = []
     const selectPrompts: { title: string; options: string[] }[] = []
+    const activeToolsCalls: string[][] = []
+
+    // Mirrors pi's loader: runtime-bound action methods (getAllTools,
+    // setActiveTools, ...) throw during extension loading and only work once
+    // the session runtime is bound. Tests enter the runtime phase by invoking
+    // a runtime entry point (session_start, tool_call, or a command).
+    let runtimeActive = false
+    const assertRuntimeActive = () => {
+      if (!runtimeActive) {
+        throw new Error(
+          'Extension runtime not initialized. Action methods cannot be called during extension loading.'
+        )
+      }
+    }
 
     const registerFlag: ExtensionAPI['registerFlag'] = (name, options) => {
       registeredFlags.push({ name, options })
@@ -125,16 +143,29 @@ export const setupPiHarness = configureHarnesses(
       }
     }
 
+    const getAllToolsImpl: ExtensionAPI['getAllTools'] = () => {
+      assertRuntimeActive()
+      return getAllTools().map((name) => fromPartial<ToolInfo>({ name }))
+    }
+
+    const setActiveTools: ExtensionAPI['setActiveTools'] = (toolNames) => {
+      assertRuntimeActive()
+      activeToolsCalls.push([...toolNames])
+    }
+
     const pi = fromPartial<ExtensionAPI>({
       registerFlag,
       registerCommand,
       getFlag,
       on,
+      getAllTools: getAllToolsImpl,
+      setActiveTools,
     })
 
     async function toolCall(
       event: ToolCallEvent
     ): Promise<ToolCallEventResult | undefined> {
+      runtimeActive = true
       let last: ToolCallEventResult | undefined
       for (const listener of toolCallListeners) {
         last = await listener(event, ctx)
@@ -143,12 +174,14 @@ export const setupPiHarness = configureHarnesses(
     }
 
     async function sessionStart(event: SessionStartEvent): Promise<void> {
+      runtimeActive = true
       for (const listener of sessionStartListeners) {
         await listener(event, ctx)
       }
     }
 
     async function runCommand(name: string, args: string): Promise<void> {
+      runtimeActive = true
       const command = registeredCommands.get(name)
       if (command === undefined) {
         throw new Error(`No command registered with name "${name}"`)
@@ -172,6 +205,8 @@ export const setupPiHarness = configureHarnesses(
       registeredFlags,
       registeredCommands,
       selectPrompts,
+      activeToolsCalls,
+      activeTools: () => activeToolsCalls.at(-1),
     }
   }
 )
@@ -197,6 +232,18 @@ export function fakeWriteToolCallEvent(): WriteToolCallEvent {
       content: faker.lorem.paragraph(),
     },
   }
+}
+
+export function fakeToolCallEvent(params: {
+  toolName: string
+  input?: Record<string, unknown>
+}): ToolCallEvent {
+  return fromPartial<ToolCallEvent>({
+    type: 'tool_call',
+    toolCallId: faker.string.uuid(),
+    toolName: params.toolName,
+    input: params.input ?? {},
+  })
 }
 
 export function fakeReadToolCallEvent(): ReadToolCallEvent {

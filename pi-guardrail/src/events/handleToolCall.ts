@@ -7,6 +7,7 @@ import type {
 import { decideBashCall } from '../bash/decideBashCall'
 import { block } from '../block'
 import { type GuardrailRuntime, isFailedContext } from '../types'
+import { decideNonBashCall } from './decideNonBashCall'
 
 function isBashEvent(event: ToolCallEvent): event is BashToolCallEvent {
   return event.toolName === 'bash'
@@ -33,13 +34,11 @@ export async function handleToolCall(params: {
     })
   }
 
-  // Phase 5 will add full non-bash enforcement. Phase 0 tracer: read-only
-  // explicitly denies "write".
-  if (context.mode === 'read-only' && params.event.toolName === 'write') {
-    return block(
-      'policy-deny',
-      `Guardrail mode read-only denies tool "${params.event.toolName}".`
-    )
-  }
-  return undefined
+  return decideNonBashCall({
+    event: params.event,
+    ctx: params.ctx,
+    mode: context.mode,
+    policy: context.policy,
+    sessionGrants: context.sessionGrants,
+  })
 }

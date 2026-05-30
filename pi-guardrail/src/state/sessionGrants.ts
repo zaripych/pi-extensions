@@ -14,11 +14,14 @@ export type SessionGrants = {
   grantClassification: (params: {
     classification: GrantableBashClassification
   }) => void
+  hasTool: (params: { toolName: string }) => boolean
+  grantTool: (params: { toolName: string }) => void
 }
 
 export function createSessionGrants(): SessionGrants {
   const exactCommands = new Set<string>()
   const classifications = new Set<GrantableBashClassification>()
+  const tools = new Set<string>()
   return {
     hasExactCommand: ({ command }) => exactCommands.has(command),
     grantExactCommand: ({ command }) => {
@@ -28,6 +31,10 @@ export function createSessionGrants(): SessionGrants {
       classification !== 'bash:unknown' && classifications.has(classification),
     grantClassification: ({ classification }) => {
       classifications.add(classification)
+    },
+    hasTool: ({ toolName }) => tools.has(toolName),
+    grantTool: ({ toolName }) => {
+      tools.add(toolName)
     },
   }
 }
