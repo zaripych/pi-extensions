@@ -25,6 +25,9 @@ export async function registerGuardrail(
   params.pi.on('session_start', (_event, ctx) => {
     guardrail.handleSessionStart({ ctx })
   })
+  params.pi.on('before_agent_start', (event) =>
+    guardrail.handleBeforeAgentStart({ event })
+  )
   params.pi.registerCommand('guardrail', {
     description: 'Inspect or change the guardrail mode.',
     handler: async (args, ctx) => {

@@ -37,6 +37,7 @@
     "vitest": "^4.1.7"
   },
   "dependencies": {
+    "dedent": "1.7.2",
     "shell-quote": "^1.8.4",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"

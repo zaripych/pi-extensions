@@ -20,12 +20,15 @@ export type ModeAction = 'allow' | 'ask' | 'deny'
 
 export type ModeActions = ReadonlyMap<string, ModeAction>
 
+export type BashCategory = 'read' | 'write' | 'dangerous'
+
 export type PolicyData = {
   readonly modes: Readonly<Record<'read-only' | 'hand-hold', ModeActions>>
   readonly bashGroups: BashGroups
+  readonly bashGroupDescriptions: Readonly<
+    Record<BashCategory, readonly string[]>
+  >
 }
-
-export type BashCategory = 'read' | 'write' | 'dangerous'
 
 export type BashEntryLocation = {
   readonly category: BashCategory
@@ -326,6 +329,7 @@ function buildPolicy(params: {
         'hand-hold': handHold.actions,
       },
       bashGroups: bashResult.bashGroups,
+      bashGroupDescriptions: bashResult.bashGroupDescriptions,
     },
     diagnostics: bashResult.diagnostics,
   }
@@ -339,6 +343,7 @@ type LocatedBashEntry = {
 
 function buildBashClassification(params: { raw: RawPolicy['bash'] }): {
   bashGroups: BashGroups
+  bashGroupDescriptions: Record<BashCategory, readonly string[]>
   diagnostics: readonly PolicyDiagnostic[]
 } {
   const items: LocatedBashEntry[] = []
@@ -392,7 +397,13 @@ function buildBashClassification(params: { raw: RawPolicy['bash'] }): {
     dangerous: toBashEntries({ category: 'dangerous', items }),
   }
 
-  return { bashGroups, diagnostics }
+  const bashGroupDescriptions: Record<BashCategory, readonly string[]> = {
+    read: params.raw.read.map((group) => group.description),
+    write: params.raw.write.map((group) => group.description),
+    dangerous: params.raw.dangerous.map((group) => group.description),
+  }
+
+  return { bashGroups, bashGroupDescriptions, diagnostics }
 }
 
 // Two cross-category entries are statically ambiguous when their specificity

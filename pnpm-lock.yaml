@@ -67,6 +67,9 @@ importers:
 
   pi-guardrail:
     dependencies:
+      dedent:
+        specifier: 1.7.2
+        version: 1.7.2
       shell-quote:
         specifier: ^1.8.4
         version: 1.8.4

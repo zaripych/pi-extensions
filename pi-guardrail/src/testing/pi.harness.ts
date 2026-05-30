@@ -1,5 +1,7 @@
 import type {
   BashToolCallEvent,
+  BeforeAgentStartEvent,
+  BeforeAgentStartEventResult,
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
@@ -29,6 +31,14 @@ type SessionStartListener = (
   ctx: ExtensionContext
 ) => undefined | Promise<undefined>
 
+type BeforeAgentStartListener = (
+  event: BeforeAgentStartEvent,
+  ctx: ExtensionContext
+) =>
+  | BeforeAgentStartEventResult
+  | undefined
+  | Promise<BeforeAgentStartEventResult | undefined>
+
 function isToolCallListener(value: unknown): value is ToolCallListener {
   return typeof value === 'function'
 }
@@ -36,6 +46,12 @@ function isToolCallListener(value: unknown): value is ToolCallListener {
 function isSessionStartListener(
   value: unknown
 ): value is SessionStartListener {
+  return typeof value === 'function'
+}
+
+function isBeforeAgentStartListener(
+  value: unknown
+): value is BeforeAgentStartListener {
   return typeof value === 'function'
 }
 
@@ -91,6 +107,7 @@ export const setupPiHarness = configureHarnesses(
     const notifications: Notification[] = []
     const toolCallListeners: ToolCallListener[] = []
     const sessionStartListeners: SessionStartListener[] = []
+    const beforeAgentStartListeners: BeforeAgentStartListener[] = []
     const selectPrompts: { title: string; options: string[] }[] = []
     const activeToolsCalls: string[][] = []
 
@@ -143,6 +160,10 @@ export const setupPiHarness = configureHarnesses(
 
     function on(event: 'tool_call', handler: ToolCallListener): void
     function on(event: 'session_start', handler: SessionStartListener): void
+    function on(
+      event: 'before_agent_start',
+      handler: BeforeAgentStartListener
+    ): void
     function on(event: string, handler: unknown): void {
       if (event === 'tool_call' && isToolCallListener(handler)) {
         toolCallListeners.push(handler)
@@ -150,6 +171,13 @@ export const setupPiHarness = configureHarnesses(
       }
       if (event === 'session_start' && isSessionStartListener(handler)) {
         sessionStartListeners.push(handler)
+        return
+      }
+      if (
+        event === 'before_agent_start' &&
+        isBeforeAgentStartListener(handler)
+      ) {
+        beforeAgentStartListeners.push(handler)
       }
     }
 
@@ -196,6 +224,22 @@ export const setupPiHarness = configureHarnesses(
       }
     }
 
+    // Mirrors pi chaining before_agent_start systemPrompt replacements: each
+    // listener that returns a systemPrompt replaces it for the next listener.
+    async function beforeAgentStart(
+      event: BeforeAgentStartEvent
+    ): Promise<string> {
+      runtimeActive = true
+      let systemPrompt = event.systemPrompt
+      for (const listener of beforeAgentStartListeners) {
+        const result = await listener({ ...event, systemPrompt }, ctx)
+        if (result?.systemPrompt !== undefined) {
+          systemPrompt = result.systemPrompt
+        }
+      }
+      return systemPrompt
+    }
+
     async function runCommand(name: string, args: string): Promise<void> {
       runtimeActive = true
       const command = registeredCommands.get(name)
@@ -216,6 +260,7 @@ export const setupPiHarness = configureHarnesses(
       pi,
       toolCall,
       sessionStart,
+      beforeAgentStart,
       runCommand,
       notifications,
       registeredFlags,
@@ -274,4 +319,14 @@ export function fakeReadToolCallEvent(): ReadToolCallEvent {
 
 export function fakeSessionStartEvent(): SessionStartEvent {
   return { type: 'session_start', reason: 'startup' }
+}
+
+export function fakeBeforeAgentStartEvent(params?: {
+  systemPrompt?: string
+}): BeforeAgentStartEvent {
+  return fromPartial<BeforeAgentStartEvent>({
+    type: 'before_agent_start',
+    prompt: faker.lorem.sentence(),
+    systemPrompt: params?.systemPrompt ?? faker.lorem.paragraph(),
+  })
 }

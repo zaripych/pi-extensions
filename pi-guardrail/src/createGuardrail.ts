@@ -1,4 +1,5 @@
 import type {
+  BeforeAgentStartEvent,
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
@@ -8,6 +9,7 @@ import { parseGuardrailFlag } from './cli-args/parseGuardrailFlag'
 import { handleGuardrailCommand } from './commands/handleGuardrailCommand'
 import { formatDiagnosticsWarning } from './config/formatDiagnosticsWarning'
 import { loadPolicy } from './config/loadPolicy'
+import { handleBeforeAgentStart } from './events/handleBeforeAgentStart'
 import { handleToolCall } from './events/handleToolCall'
 import { computeActiveTools } from './state/computeActiveTools'
 import { createSessionGrants } from './state/sessionGrants'
@@ -137,6 +139,8 @@ export async function createGuardrail(
   return {
     handleToolCall: (params: { event: ToolCallEvent; ctx: ExtensionContext }) =>
       handleToolCall({ ...params, runtime }),
+    handleBeforeAgentStart: (params: { event: BeforeAgentStartEvent }) =>
+      handleBeforeAgentStart({ ...params, runtime }),
     handleSessionStart(params: { ctx: ExtensionContext }) {
       const current = runtime.getContext()
       applyActiveTools()
