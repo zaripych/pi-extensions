@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
+import { completeGuardrailArguments } from './commands/completeGuardrailArguments'
 import { createGuardrail } from './createGuardrail'
 
 const defaultDeps = {
@@ -30,6 +31,7 @@ export async function registerGuardrail(
   )
   params.pi.registerCommand('guardrail', {
     description: 'Inspect or change the guardrail mode.',
+    getArgumentCompletions: completeGuardrailArguments,
     handler: async (args, ctx) => {
       await guardrail.handleGuardrailCommand({ args, ctx })
     },

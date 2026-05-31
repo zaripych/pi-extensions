@@ -7,6 +7,7 @@ import type {
 } from '@earendil-works/pi-coding-agent'
 import { parseGuardrailFlag } from './cli-args/parseGuardrailFlag'
 import { handleGuardrailCommand } from './commands/handleGuardrailCommand'
+import { formatConfigErrorNotice } from './config/formatConfigErrorNotice'
 import { formatDiagnosticsWarning } from './config/formatDiagnosticsWarning'
 import { loadPolicy } from './config/loadPolicy'
 import { handleBeforeAgentStart } from './events/handleBeforeAgentStart'
@@ -144,6 +145,13 @@ export async function createGuardrail(
     handleSessionStart(params: { ctx: ExtensionContext }) {
       const current = runtime.getContext()
       applyActiveTools()
+      if (current.status === 'policy-error') {
+        params.ctx.ui.notify(
+          formatConfigErrorNotice({ error: current.error }),
+          'error'
+        )
+        return
+      }
       if (isFailedContext(current)) {
         params.ctx.ui.notify(current.error, 'error')
         return

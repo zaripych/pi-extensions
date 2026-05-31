@@ -1,11 +1,18 @@
 import type { ExtensionCommandContext } from '@earendil-works/pi-coding-agent'
+import { formatConfigErrorNotice } from '../config/formatConfigErrorNotice'
 import { formatDiagnosticsWarning } from '../config/formatDiagnosticsWarning'
 import {
+  type BashEntryLocation,
   type InspectPolicyResult,
+  importPolicyFileExists,
   inspectPolicy,
   type PolicyDiagnostic,
   resetPolicyToDefault,
+  saveImportPolicyFile,
 } from '../config/loadPolicy'
+import { UnreachableError } from '../correctness/UnreachableError'
+import { discoverCliCommands } from '../discover/discoverCliCommands'
+import { formatDiscoveryReport } from '../discover/formatDiscoveryReport'
 import {
   type GuardrailContext,
   type GuardrailRuntime,
@@ -15,6 +22,9 @@ import {
 const defaultDeps = {
   inspectPolicy,
   resetPolicyToDefault,
+  discoverCliCommands,
+  saveImportPolicyFile,
+  importPolicyFileExists,
 }
 
 export async function handleGuardrailCommand(
@@ -30,6 +40,38 @@ export async function handleGuardrailCommand(
 
   if (subcommand === '' || subcommand === 'status') {
     notifyStatus({ ctx: params.ctx, context: runtime.getContext() })
+    return
+  }
+
+  if (subcommand === 'discover' || subcommand.startsWith('discover ')) {
+    const cli = subcommand.slice('discover'.length).trim()
+    if (cli === '') {
+      params.ctx.ui.notify('Usage: /guardrail discover <cli>', 'error')
+      return
+    }
+    const commands = await deps.discoverCliCommands({ cli })
+    if (commands.length === 0) {
+      params.ctx.ui.notify(
+        `pi-guardrail: no commands discovered for "${cli}".`,
+        'info'
+      )
+      return
+    }
+    const report = formatDiscoveryReport({ cli, commands })
+    params.ctx.ui.notify(report, 'info')
+    if (!params.ctx.hasUI) return
+    const { exists } = await deps.importPolicyFileExists({ cli })
+    const saveLabel = exists ? 'Save - overwrite existing' : 'Save'
+    const choice = await params.ctx.ui.select('Save discovered policy?', [
+      saveLabel,
+      'Abort',
+    ])
+    if (choice !== saveLabel) return
+    const { path } = await deps.saveImportPolicyFile({ cli, content: report })
+    params.ctx.ui.notify(
+      `pi-guardrail: saved ${path}. Add it under bash.import in guardrail.yaml to use it.`,
+      'info'
+    )
     return
   }
 
@@ -136,16 +178,13 @@ function notifyStatus(params: {
     return
   }
   if (context.status === 'policy-error') {
-    ctx.ui.notify(
-      `pi-guardrail: config-error deny-all mode. Every model tool call is denied.\n\n${context.error}`,
-      'error'
-    )
+    ctx.ui.notify(formatConfigErrorNotice({ error: context.error }), 'error')
     return
   }
   if (context.diagnostics.length > 0) {
     const count = context.diagnostics.length
     ctx.ui.notify(
-      `pi-guardrail: mode ${context.mode}. ${count} configuration entr${count === 1 ? 'y is' : 'ies are'} flagged ambiguous; run /guardrail doctor for details.`,
+      `pi-guardrail: mode ${context.mode}. ${count} configuration ${count === 1 ? 'issue' : 'issues'} flagged; run /guardrail doctor for details.`,
       'warning'
     )
     return
@@ -195,29 +234,52 @@ function formatDoctorWarningReport(params: {
   configPath: string
   diagnostics: readonly PolicyDiagnostic[]
 }): string {
-  const ambiguities = params.diagnostics.filter(
-    (d) => d.kind === 'cross-category-ambiguity'
-  )
+  const count = params.diagnostics.length
   const lines: string[] = []
   lines.push(
-    `pi-guardrail doctor: ${ambiguities.length} cross-category bash policy ambiguit${ambiguities.length === 1 ? 'y' : 'ies'}.`
+    `pi-guardrail doctor: ${count} bash policy issue${count === 1 ? '' : 's'}.`
   )
   lines.push(`Config: ${params.configPath}`)
   lines.push('')
-  ambiguities.forEach((ambiguity, index) => {
-    lines.push(`Ambiguity ${index + 1} (cross-category):`)
-    for (const entry of ambiguity.entries) {
-      lines.push(`  ${formatEntryLine(entry)}`)
-    }
-    lines.push(
-      '  Reason: these entries are co-matchable and tie on specificity, so a unique category cannot be selected. Matching commands are treated as bash:unknown.'
-    )
+  params.diagnostics.forEach((diagnostic, index) => {
+    lines.push(...formatDiagnostic({ diagnostic, index }))
     lines.push('')
   })
   return lines.join('\n')
 }
 
-function formatEntryLine(entry: PolicyDiagnostic['entries'][number]): string {
+function formatDiagnostic(params: {
+  diagnostic: PolicyDiagnostic
+  index: number
+}): string[] {
+  const { diagnostic, index } = params
+  const heading = `Issue ${index + 1}`
+  if (diagnostic.kind === 'cross-category-ambiguity') {
+    return [
+      `${heading} (cross-category ambiguity):`,
+      ...diagnostic.entries.map((entry) => `  ${formatEntryLine(entry)}`),
+      '  Reason: these entries are co-matchable and tie on specificity, so a unique category cannot be selected. Matching commands are treated as bash:unknown.',
+    ]
+  }
+  if (diagnostic.kind === 'import-prefix-violation') {
+    return [
+      `${heading} (import prefix violation):`,
+      `  ${formatEntryLine(diagnostic.entry)}`,
+      `  Reason: every command in this import must start with "${diagnostic.command}". This entry was ignored.`,
+    ]
+  }
+  if (diagnostic.kind === 'duplicate-import-command') {
+    return [
+      `${heading} (duplicate import command):`,
+      `  command: ${diagnostic.command}`,
+      ...diagnostic.importPaths.map((path) => `  ${path}`),
+      '  Reason: more than one import declares this command, so all of them were ignored.',
+    ]
+  }
+  throw new UnreachableError(diagnostic)
+}
+
+function formatEntryLine(entry: BashEntryLocation): string {
   const predicates: string[] = []
   if (entry.include.length > 0) {
     predicates.push(`include: [${entry.include.join(', ')}]`)
@@ -226,5 +288,8 @@ function formatEntryLine(entry: PolicyDiagnostic['entries'][number]): string {
     predicates.push(`exclude: [${entry.exclude.join(', ')}]`)
   }
   const suffix = predicates.length > 0 ? ` (${predicates.join('; ')})` : ''
+  if (entry.importPath !== undefined) {
+    return `import ${entry.importPath} (command ${entry.groupName}).${entry.category}.commands[${entry.commandIndex}]: ${entry.prefix}${suffix}`
+  }
   return `bash.${entry.category}[${entry.groupName}].commands[${entry.commandIndex}]: ${entry.prefix}${suffix}`
 }

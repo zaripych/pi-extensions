@@ -1,5 +1,5 @@
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { getAgentDir } from '@earendil-works/pi-coding-agent'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
@@ -38,12 +38,27 @@ export type BashEntryLocation = {
   readonly prefix: string
   readonly include: readonly string[]
   readonly exclude: readonly string[]
+  // Set when the entry comes from an imported per-command policy file; carries
+  // the resolved file path so doctor can point at the import rather than a
+  // bash group inside the main config.
+  readonly importPath?: string
 }
 
-export type PolicyDiagnostic = {
-  readonly kind: 'cross-category-ambiguity'
-  readonly entries: readonly BashEntryLocation[]
-}
+export type PolicyDiagnostic =
+  | {
+      readonly kind: 'cross-category-ambiguity'
+      readonly entries: readonly BashEntryLocation[]
+    }
+  | {
+      readonly kind: 'import-prefix-violation'
+      readonly command: string
+      readonly entry: BashEntryLocation
+    }
+  | {
+      readonly kind: 'duplicate-import-command'
+      readonly command: string
+      readonly importPaths: readonly string[]
+    }
 
 export type PolicyLoadResult =
   | {
@@ -93,41 +108,11 @@ export async function loadPolicy(
     }
   }
 
-  let parsed: unknown
-  try {
-    parsed = parseYaml(yamlContent)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return {
-      status: 'error',
-      error: `Could not parse guardrail config at ${configPath}: ${message}`,
-    }
-  }
-
-  if (!isPolicyObject(parsed)) {
-    return {
-      status: 'error',
-      error: `Invalid guardrail config at ${configPath}: top-level must be a YAML mapping.`,
-    }
-  }
-
-  const schemaResult = policySchema.safeParse(parsed)
-  if (!schemaResult.success) {
-    return {
-      status: 'error',
-      error: `Invalid guardrail config at ${configPath}: ${formatZodError(schemaResult.error)}`,
-    }
-  }
-
-  const built = buildPolicy({ raw: schemaResult.data, configPath })
-  if ('error' in built) {
-    return { status: 'error', error: built.error }
-  }
-  return {
-    status: 'ok',
-    policy: built.policy,
-    diagnostics: built.diagnostics,
-  }
+  return parseValidateBuildPolicy({
+    yamlContent,
+    configPath,
+    readFile: deps.readFile,
+  })
 }
 
 export async function resetPolicyToDefault(
@@ -140,6 +125,47 @@ export async function resetPolicyToDefault(
 }
 
 resetPolicyToDefault.defaultDeps = defaultDeps
+
+function importPolicyPath(params: { configDir: string; cli: string }): string {
+  const slug = cliSlug(params.cli)
+  return join(params.configDir, `guardrail.bash.${slug}.yaml`)
+}
+
+function cliSlug(cli: string): string {
+  const slug = cli
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/\.+/g, '.')
+    .replace(/^[.-]+|[.-]+$/g, '')
+  return /[A-Za-z0-9]/.test(slug) ? slug : 'cli'
+}
+
+export async function importPolicyFileExists(
+  params: { cli: string },
+  deps = defaultDeps
+): Promise<{ path: string; exists: boolean }> {
+  const path = importPolicyPath({
+    configDir: dirname(deps.getConfigPath()),
+    cli: params.cli,
+  })
+  return { path, exists: await deps.fileExists(path) }
+}
+
+importPolicyFileExists.defaultDeps = defaultDeps
+
+export async function saveImportPolicyFile(
+  params: { cli: string; content: string },
+  deps = defaultDeps
+): Promise<{ path: string }> {
+  const dir = dirname(deps.getConfigPath())
+  const path = importPolicyPath({ configDir: dir, cli: params.cli })
+  await deps.mkdir(dir)
+  await deps.writeFile(path, params.content)
+  return { path }
+}
+
+saveImportPolicyFile.defaultDeps = defaultDeps
 
 export type InspectPolicyResult =
   | { readonly status: 'missing'; readonly configPath: string }
@@ -178,7 +204,11 @@ export async function inspectPolicy(
       error: `Could not read guardrail config at ${configPath}: ${message}`,
     }
   }
-  const result = validateAndBuildPolicy({ yamlContent, configPath })
+  const result = await parseValidateBuildPolicy({
+    yamlContent,
+    configPath,
+    readFile: deps.readFile,
+  })
   if (result.status === 'error') {
     return { status: 'error', configPath, error: result.error }
   }
@@ -187,47 +217,6 @@ export async function inspectPolicy(
     configPath,
     policy: result.policy,
     diagnostics: result.diagnostics,
-  }
-}
-
-function validateAndBuildPolicy(params: {
-  yamlContent: string
-  configPath: string
-}): PolicyLoadResult {
-  let parsed: unknown
-  try {
-    parsed = parseYaml(params.yamlContent)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return {
-      status: 'error',
-      error: `Could not parse guardrail config at ${params.configPath}: ${message}`,
-    }
-  }
-  if (!isPolicyObject(parsed)) {
-    return {
-      status: 'error',
-      error: `Invalid guardrail config at ${params.configPath}: top-level must be a YAML mapping.`,
-    }
-  }
-  const schemaResult = policySchema.safeParse(parsed)
-  if (!schemaResult.success) {
-    return {
-      status: 'error',
-      error: `Invalid guardrail config at ${params.configPath}: ${formatZodError(schemaResult.error)}`,
-    }
-  }
-  const built = buildPolicy({
-    raw: schemaResult.data,
-    configPath: params.configPath,
-  })
-  if ('error' in built) {
-    return { status: 'error', error: built.error }
-  }
-  return {
-    status: 'ok',
-    policy: built.policy,
-    diagnostics: built.diagnostics,
   }
 }
 
@@ -287,6 +276,7 @@ const policySchema = z
       .strict(),
     bash: z
       .object({
+        import: z.array(z.string().min(1)).default([]),
         read: z.array(bashGroupSchema).default([]),
         write: z.array(bashGroupSchema).default([]),
         dangerous: z.array(bashGroupSchema).default([]),
@@ -297,8 +287,117 @@ const policySchema = z
 
 type RawPolicy = z.infer<typeof policySchema>
 
+const bashImportFileSchema = z
+  .object({
+    command: bashCommandPrefixSchema,
+    description: z.string().min(1),
+    read: z.array(bashCommandEntrySchema).default([]),
+    write: z.array(bashCommandEntrySchema).default([]),
+    dangerous: z.array(bashCommandEntrySchema).default([]),
+  })
+  .strict()
+
+type RawBashImportPolicy = z.infer<typeof bashImportFileSchema>
+
+type LoadedImport = { importPath: string; policy: RawBashImportPolicy }
+type LoadedImports = readonly LoadedImport[]
+
+async function loadBashImports(params: {
+  importPaths: readonly string[]
+  configDir: string
+  readFile: (path: string) => Promise<string>
+}): Promise<{ imports: LoadedImports } | { error: string }> {
+  const imports: LoadedImport[] = []
+  for (const importPath of params.importPaths) {
+    const resolved = resolve(params.configDir, importPath)
+    let content: string
+    try {
+      content = await params.readFile(resolved)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return {
+        error: `Could not read guardrail bash import at ${resolved}: ${message}`,
+      }
+    }
+    let parsed: unknown
+    try {
+      parsed = parseYaml(content)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return {
+        error: `Could not parse guardrail bash import at ${resolved}: ${message}`,
+      }
+    }
+    if (!isPolicyObject(parsed)) {
+      return {
+        error: `Invalid guardrail bash import at ${resolved}: top-level must be a YAML mapping.`,
+      }
+    }
+    const result = bashImportFileSchema.safeParse(parsed)
+    if (!result.success) {
+      return {
+        error: `Invalid guardrail bash import at ${resolved}: ${formatZodError(result.error)}`,
+      }
+    }
+    imports.push({ importPath: resolved, policy: result.data })
+  }
+  return { imports }
+}
+
+async function parseValidateBuildPolicy(params: {
+  yamlContent: string
+  configPath: string
+  readFile: (path: string) => Promise<string>
+}): Promise<PolicyLoadResult> {
+  let parsed: unknown
+  try {
+    parsed = parseYaml(params.yamlContent)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      status: 'error',
+      error: `Could not parse guardrail config at ${params.configPath}: ${message}`,
+    }
+  }
+  if (!isPolicyObject(parsed)) {
+    return {
+      status: 'error',
+      error: `Invalid guardrail config at ${params.configPath}: top-level must be a YAML mapping.`,
+    }
+  }
+  const schemaResult = policySchema.safeParse(parsed)
+  if (!schemaResult.success) {
+    return {
+      status: 'error',
+      error: `Invalid guardrail config at ${params.configPath}: ${formatZodError(schemaResult.error)}`,
+    }
+  }
+  const importsResult = await loadBashImports({
+    importPaths: schemaResult.data.bash.import,
+    configDir: dirname(params.configPath),
+    readFile: params.readFile,
+  })
+  if ('error' in importsResult) {
+    return { status: 'error', error: importsResult.error }
+  }
+  const built = buildPolicy({
+    raw: schemaResult.data,
+    imports: importsResult.imports,
+    configPath: params.configPath,
+  })
+  if ('error' in built) {
+    return { status: 'error', error: built.error }
+  }
+  return {
+    status: 'ok',
+    policy: built.policy,
+    diagnostics: built.diagnostics,
+  }
+}
+
 function buildPolicy(params: {
   raw: RawPolicy
+  imports: LoadedImports
   configPath: string
 }):
   | { policy: PolicyData; diagnostics: readonly PolicyDiagnostic[] }
@@ -321,7 +420,10 @@ function buildPolicy(params: {
       error: `Invalid guardrail config at ${params.configPath}: ${handHold.error}`,
     }
   }
-  const bashResult = buildBashClassification({ raw: params.raw.bash })
+  const bashResult = buildBashClassification({
+    raw: params.raw.bash,
+    imports: params.imports,
+  })
   return {
     policy: {
       modes: {
@@ -341,7 +443,22 @@ type LocatedBashEntry = {
   readonly entry: BashEntry
 }
 
-function buildBashClassification(params: { raw: RawPolicy['bash'] }): {
+function normalizeBashEntry(
+  rawEntry: RawPolicy['bash']['read'][number]['commands'][number]
+): BashEntry {
+  return typeof rawEntry === 'string'
+    ? { prefix: rawEntry, include: [], exclude: [] }
+    : {
+        prefix: rawEntry.command,
+        include: rawEntry.include ?? [],
+        exclude: rawEntry.exclude ?? [],
+      }
+}
+
+function buildBashClassification(params: {
+  raw: RawPolicy['bash']
+  imports: LoadedImports
+}): {
   bashGroups: BashGroups
   bashGroupDescriptions: Record<BashCategory, readonly string[]>
   diagnostics: readonly PolicyDiagnostic[]
@@ -351,14 +468,7 @@ function buildBashClassification(params: { raw: RawPolicy['bash'] }): {
   for (const category of categories) {
     params.raw[category].forEach((group, groupIndex) => {
       group.commands.forEach((rawEntry, commandIndex) => {
-        const entry =
-          typeof rawEntry === 'string'
-            ? { prefix: rawEntry, include: [], exclude: [] }
-            : {
-                prefix: rawEntry.command,
-                include: rawEntry.include ?? [],
-                exclude: rawEntry.exclude ?? [],
-              }
+        const entry = normalizeBashEntry(rawEntry)
         items.push({
           category,
           location: {
@@ -376,7 +486,67 @@ function buildBashClassification(params: { raw: RawPolicy['bash'] }): {
     })
   }
 
-  const diagnostics: PolicyDiagnostic[] = []
+  const importDiagnostics: PolicyDiagnostic[] = []
+  // Rule 4: imports that declare the same `command` are all ignored. Keys are
+  // the normalized token form used for matching, so whitespace variants such
+  // as `aws` and `"aws "` collide as duplicates rather than slipping through.
+  const pathsByCommand = new Map<string, string[]>()
+  for (const { importPath, policy } of params.imports) {
+    const key = prefixTokens(policy.command).join(' ')
+    const paths = pathsByCommand.get(key) ?? []
+    paths.push(importPath)
+    pathsByCommand.set(key, paths)
+  }
+  const duplicateCommands = new Set<string>()
+  for (const [command, paths] of pathsByCommand) {
+    if (paths.length > 1) {
+      duplicateCommands.add(command)
+      importDiagnostics.push({
+        kind: 'duplicate-import-command',
+        command,
+        importPaths: paths,
+      })
+    }
+  }
+
+  let importIndex = 0
+  for (const { importPath, policy } of params.imports) {
+    if (duplicateCommands.has(prefixTokens(policy.command).join(' '))) {
+      importIndex++
+      continue
+    }
+    const commandTokens = prefixTokens(policy.command)
+    for (const category of categories) {
+      policy[category].forEach((rawEntry, commandIndex) => {
+        const entry = normalizeBashEntry(rawEntry)
+        const location: BashEntryLocation = {
+          category,
+          groupName: policy.command,
+          groupIndex: importIndex,
+          commandIndex,
+          prefix: entry.prefix,
+          include: entry.include,
+          exclude: entry.exclude,
+          importPath,
+        }
+        // Rule 3: every command in an imported policy must start with the
+        // file's `command`. A violating entry is dropped from classification
+        // (its command falls back to bash:unknown) and reported by doctor.
+        if (!isTokenPrefix(commandTokens, prefixTokens(entry.prefix))) {
+          importDiagnostics.push({
+            kind: 'import-prefix-violation',
+            command: policy.command,
+            entry: location,
+          })
+          return
+        }
+        items.push({ category, location, entry })
+      })
+    }
+    importIndex++
+  }
+
+  const diagnostics: PolicyDiagnostic[] = [...importDiagnostics]
   for (let i = 0; i < items.length; i++) {
     for (let j = i + 1; j < items.length; j++) {
       const a = items[i]
@@ -398,9 +568,24 @@ function buildBashClassification(params: { raw: RawPolicy['bash'] }): {
   }
 
   const bashGroupDescriptions: Record<BashCategory, readonly string[]> = {
-    read: params.raw.read.map((group) => group.description),
-    write: params.raw.write.map((group) => group.description),
-    dangerous: params.raw.dangerous.map((group) => group.description),
+    read: collectDescriptions({
+      category: 'read',
+      raw: params.raw,
+      imports: params.imports,
+      items,
+    }),
+    write: collectDescriptions({
+      category: 'write',
+      raw: params.raw,
+      imports: params.imports,
+      items,
+    }),
+    dangerous: collectDescriptions({
+      category: 'dangerous',
+      raw: params.raw,
+      imports: params.imports,
+      items,
+    }),
   }
 
   return { bashGroups, bashGroupDescriptions, diagnostics }
@@ -466,6 +651,34 @@ function isTokenPrefix(
   return shorter.every((token, index) => token === longer[index])
 }
 
+// Descriptions feed the system prompt, so they must reflect what the classifier
+// actually accepted: only imports that contributed at least one accepted entry
+// to this category are advertised. Imports ignored for a duplicate `command`,
+// or whose entries were all dropped as prefix violations, leave no accepted
+// item behind and are therefore excluded.
+function collectDescriptions(params: {
+  category: BashCategory
+  raw: RawPolicy['bash']
+  imports: LoadedImports
+  items: readonly LocatedBashEntry[]
+}): readonly string[] {
+  const descriptions = params.raw[params.category].map(
+    (group) => group.description
+  )
+  const seenImportPaths = new Set<string>()
+  for (const item of params.items) {
+    if (item.category !== params.category) continue
+    const importPath = item.location.importPath
+    if (importPath === undefined || seenImportPaths.has(importPath)) continue
+    seenImportPaths.add(importPath)
+    const loaded = params.imports.find(
+      (entry) => entry.importPath === importPath
+    )
+    if (loaded !== undefined) descriptions.push(loaded.policy.description)
+  }
+  return descriptions
+}
+
 function toBashEntries(params: {
   category: BashCategory
   items: readonly LocatedBashEntry[]
@@ -518,9 +731,7 @@ function validateCapability(capability: string): string | undefined {
 }
 
 function formatZodError(error: z.ZodError): string {
-  return error.issues
-    .map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
-    .join('; ')
+  return `\n${z.prettifyError(error)}`
 }
 
 loadPolicy.defaultDeps = defaultDeps

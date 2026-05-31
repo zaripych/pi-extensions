@@ -56,7 +56,7 @@ describe('cli-args end to end', () => {
     })
   })
 
-  it('defaults to hand-hold mode when the user passes no --guardrail flag', async () => {
+  it('defaults to off mode when the user passes no --guardrail flag', async () => {
     await using harness = await setup({ respondToSelect: () => 'Abort' })
     const { pi, registerGuardrail, toolCall, selectPrompts } = harness
 
@@ -65,12 +65,8 @@ describe('cli-args end to end', () => {
       fakeBashToolCallEvent({ command: 'npm install' })
     )
 
-    expect(result).toEqual({
-      block: true,
-      reason: expect.stringContaining('npm install'),
-      reasonCode: 'user-declined',
-    })
-    expect(selectPrompts).toHaveLength(1)
+    expect(result).toBeUndefined()
+    expect(selectPrompts).toHaveLength(0)
   })
 
   it('lets the model use tools when the user passes --guardrail off', async () => {

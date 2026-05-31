@@ -256,12 +256,23 @@ export const setupPiHarness = configureHarnesses(
       await command.options.handler(args, commandCtx)
     }
 
+    async function completeCommand(name: string, prefix: string) {
+      const command = registeredCommands.get(name)
+      if (command === undefined) {
+        throw new Error(`No command registered with name "${name}"`)
+      }
+      const provider = command.options.getArgumentCompletions
+      if (provider === undefined) return undefined
+      return provider(prefix)
+    }
+
     return {
       pi,
       toolCall,
       sessionStart,
       beforeAgentStart,
       runCommand,
+      completeCommand,
       notifications,
       registeredFlags,
       registeredCommands,

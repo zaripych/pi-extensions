@@ -4,7 +4,13 @@ import { join } from 'node:path'
 import { configureDependencies } from 'foundation/testing/harness/configureDependencies'
 import { configureHarnesses } from 'foundation/testing/harness/configureHarnesses'
 import { withDeps } from 'foundation/testing/harness/withDeps'
-import { inspectPolicy, loadPolicy, resetPolicyToDefault } from './loadPolicy'
+import {
+  importPolicyFileExists,
+  inspectPolicy,
+  loadPolicy,
+  resetPolicyToDefault,
+  saveImportPolicyFile,
+} from './loadPolicy'
 
 export const setupLoadPolicy = configureHarnesses(
   {
@@ -30,6 +36,8 @@ export const setupLoadPolicy = configureHarnesses(
       loadPolicy: withDeps(loadPolicy, deps),
       inspectPolicy: withDeps(inspectPolicy, deps),
       resetPolicyToDefault: withDeps(resetPolicyToDefault, deps),
+      saveImportPolicyFile: withDeps(saveImportPolicyFile, deps),
+      importPolicyFileExists: withDeps(importPolicyFileExists, deps),
       async [Symbol.asyncDispose]() {
         await rm(tempDir, { recursive: true, force: true })
       },

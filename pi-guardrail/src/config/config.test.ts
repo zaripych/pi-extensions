@@ -12,7 +12,7 @@ const setup = combineHarnesses(setupPiHarness, setupRegisterGuardrail)
 
 describe('config end to end', () => {
   it('creates guardrail.yaml from the shipped default when none exists', async () => {
-    await using harness = await setup()
+    await using harness = await setup({ getFlag: () => 'hand-hold' })
     const { pi, registerGuardrail, configPath, readFile } = harness
 
     await registerGuardrail({ pi })

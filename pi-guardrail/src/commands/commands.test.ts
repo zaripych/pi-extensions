@@ -739,7 +739,7 @@ bash:
     await runCommand('guardrail', 'status')
 
     expect(notifications).toEqual([
-      { message: expect.stringContaining('config-error'), level: 'error' },
+      { message: expect.stringContaining('failing closed'), level: 'error' },
     ])
   })
 
@@ -794,8 +794,64 @@ bash:
     await runCommand('guardrail', 'status')
 
     expect(notifications).toEqual([
-      { message: expect.stringContaining('ambiguous'), level: 'warning' },
+      {
+        message: expect.stringMatching(/configuration issue flagged.*\/guardrail doctor/),
+        level: 'warning',
+      },
     ])
+  })
+
+  it('offers every subcommand when /guardrail is typed with an empty argument', async () => {
+    await using harness = await setup({ getFlag: () => 'hand-hold' })
+    const { pi, registerGuardrail, completeCommand } = harness
+
+    await registerGuardrail({ pi })
+    const completions = await completeCommand('guardrail', '')
+
+    expect(completions?.map((item) => item.value)).toEqual([
+      'status',
+      'read-only',
+      'hand-hold',
+      'off',
+      'reload',
+      'doctor',
+      'discover',
+      'reset-to-default',
+    ])
+  })
+
+  it('filters subcommands by the typed argument prefix', async () => {
+    await using harness = await setup({ getFlag: () => 'hand-hold' })
+    const { pi, registerGuardrail, completeCommand } = harness
+
+    await registerGuardrail({ pi })
+    const completions = await completeCommand('guardrail', 're')
+
+    expect(completions?.map((item) => item.value)).toEqual([
+      'read-only',
+      'reload',
+      'reset-to-default',
+    ])
+  })
+
+  it('offers no completions when the typed prefix matches no subcommand', async () => {
+    await using harness = await setup({ getFlag: () => 'hand-hold' })
+    const { pi, registerGuardrail, completeCommand } = harness
+
+    await registerGuardrail({ pi })
+    const completions = await completeCommand('guardrail', 'zzz')
+
+    expect(completions).toBeNull()
+  })
+
+  it('does not offer argument completions on the /read-only and /hand-hold aliases', async () => {
+    await using harness = await setup({ getFlag: () => 'hand-hold' })
+    const { pi, registerGuardrail, completeCommand } = harness
+
+    await registerGuardrail({ pi })
+
+    expect(await completeCommand('read-only', '')).toBeUndefined()
+    expect(await completeCommand('hand-hold', '')).toBeUndefined()
   })
 
   it('notifies the user when /guardrail reload loads a config that fails to parse', async () => {

@@ -21,7 +21,7 @@ export function parseGuardrailFlag(
   guardrailFlag: string | boolean | undefined
 ): ParsedGuardrailFlag {
   if (typeof guardrailFlag === 'undefined') {
-    return { kind: 'ok', value: 'hand-hold' }
+    return { kind: 'ok', value: 'off' }
   }
   if (typeof guardrailFlag !== 'string') {
     return {
