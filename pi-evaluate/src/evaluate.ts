@@ -1,14 +1,18 @@
 import { glob, open, readFile } from 'node:fs/promises'
-import { basename } from 'node:path'
+import { basename, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { createCliRequestOutput } from './createCliRequestOutput'
 import { evaluateSamples } from './evaluateSamples'
+import { findRepoRoot } from './findRepoRoot'
 import { parseCriteria } from './parseCriteria'
 import { readSamples } from './readSamples'
+import { withResultCache } from './resultCache'
 import type { SingleShotRequest } from './singleShotRequest'
 
 const defaultDeps = {
   createCliRequestOutput,
+  getCacheDir: async (): Promise<string> =>
+    join(await findRepoRoot(process.cwd()), '.eval-cache'),
 }
 
 export type EvaluateSummary = {
@@ -78,9 +82,15 @@ export async function evaluate(
   )
 
   const dryRun = params.dryRun ?? false
+  const seed = 0
   const singleShotRequest = dryRun
     ? dryRunRequest
-    : deps.createCliRequestOutput({ model: params.model }).singleShotRequest
+    : withResultCache({
+        singleShotRequest: deps.createCliRequestOutput({ model: params.model })
+          .singleShotRequest,
+        cacheDir: await deps.getCacheDir(),
+        model: params.model,
+      })
 
   await using inputHandle = await open(inputSource.path, 'r')
 
@@ -94,7 +104,7 @@ export async function evaluate(
     singleShotRequest,
     allowSkip: params.allowSkip ?? false,
     model: params.model,
-    seed: 0,
+    seed,
     signal: params.signal,
   })
 

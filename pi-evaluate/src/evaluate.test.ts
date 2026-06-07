@@ -2,6 +2,7 @@ import dedent from 'dedent'
 import { combineHarnesses } from 'foundation/testing/harness/combineHarnesses'
 import { describe, expect, it } from 'vitest'
 import { setupEvaluate } from './evaluate.harness'
+import type { SingleShotRequest } from './singleShotRequest'
 
 const markdown = dedent
 
@@ -716,6 +717,166 @@ describe('evaluate', () => {
       expect.objectContaining({ score: 0 }),
       expect.objectContaining({ score: 0.5 }),
       expect.objectContaining({ score: 1 }),
+    ])
+  })
+
+  it('caches only success cells, leaving skipped and error cells uncached', async () => {
+    await using harness = await setup()
+    let requestCount = 0
+
+    await harness.runEvaluate({
+      allowSkip: true,
+      maxErrors: 5,
+      criteria: markdown`
+        ---
+        score-range: binary
+        fields:
+          - name: answer
+        ---
+
+        Score whether the answer is helpful.
+      `,
+      input: [{ answer: 'present' }, { other: 'missing' }, { answer: 'boom' }],
+      singleShotRequest: async ({ schema }) => {
+        requestCount += 1
+        if (requestCount === 1) {
+          return schema.parse({ score: 1, reason: 'helpful' })
+        }
+        throw new Error('model request failed')
+      },
+    })
+
+    expect(await harness.readCacheEntries()).toHaveLength(1)
+  })
+
+  it('repeats the cached score and reason without spending a token on identical reruns', async () => {
+    await using harness = await setup()
+    let requestCount = 0
+    const singleShotRequest: SingleShotRequest = async ({ schema }) => {
+      requestCount += 1
+      return schema.parse({ score: 1, reason: 'cached reason' })
+    }
+    const run = {
+      model: 'test/model',
+      criteria: markdown`
+        ---
+        score-range: binary
+        ---
+
+        Score whether the answer is helpful.
+      `,
+      input: [{ answer: 'the same answer' }],
+      singleShotRequest,
+    }
+
+    const first = await harness.runEvaluate(run)
+    const second = await harness.runEvaluate(run)
+
+    expect(requestCount).toBe(1)
+    expect(first.rows).toEqual([
+      expect.objectContaining({ score: 1, reason: 'cached reason' }),
+    ])
+    expect(second.rows).toEqual([
+      expect.objectContaining({ score: 1, reason: 'cached reason' }),
+    ])
+  })
+
+  it('uses a distinct cache result when the sample content changes', async () => {
+    await using harness = await setup()
+    let requestCount = 0
+    const singleShotRequest: SingleShotRequest = async ({ schema }) => {
+      requestCount += 1
+      return schema.parse({ score: 1, reason: `verdict ${requestCount}` })
+    }
+    const criteria = markdown`
+      ---
+      score-range: binary
+      ---
+
+      Score whether the answer is helpful.
+    `
+
+    const first = await harness.runEvaluate({
+      model: 'test/model',
+      criteria,
+      input: [{ answer: 'first answer' }],
+      singleShotRequest,
+    })
+    const second = await harness.runEvaluate({
+      model: 'test/model',
+      criteria,
+      input: [{ answer: 'second answer' }],
+      singleShotRequest,
+    })
+
+    expect(requestCount).toBe(2)
+    expect(first.rows).toEqual([
+      expect.objectContaining({ reason: 'verdict 1' }),
+    ])
+    expect(second.rows).toEqual([
+      expect.objectContaining({ reason: 'verdict 2' }),
+    ])
+    expect(await harness.readCacheEntries()).toHaveLength(2)
+  })
+
+  it('recomputes via the model when a cached entry no longer satisfies the schema', async () => {
+    await using harness = await setup()
+    let requestCount = 0
+    const singleShotRequest: SingleShotRequest = async ({ schema }) => {
+      requestCount += 1
+      return schema.parse({ score: 1, reason: `verdict ${requestCount}` })
+    }
+    const run = {
+      model: 'test/model',
+      criteria: markdown`
+        ---
+        score-range: binary
+        ---
+
+        Score whether the answer is helpful.
+      `,
+      input: [{ answer: 'the same answer' }],
+      singleShotRequest,
+    }
+
+    await harness.runEvaluate(run)
+    await harness.overwriteCacheEntries('{"bogus": "shape"}')
+    const recovered = await harness.runEvaluate(run)
+
+    expect(requestCount).toBe(2)
+    expect(recovered.rows).toEqual([
+      expect.objectContaining({ status: 'success', score: 1, reason: 'verdict 2' }),
+    ])
+  })
+
+  it('produces the same row shape for cache hits and misses in one run', async () => {
+    await using harness = await setup()
+    const singleShotRequest: SingleShotRequest = async ({ schema }) =>
+      schema.parse({ score: 1, reason: 'helpful' })
+    const criteria = markdown`
+      ---
+      score-range: binary
+      ---
+
+      Score whether the answer is helpful.
+    `
+
+    await harness.runEvaluate({
+      model: 'test/model',
+      criteria,
+      input: [{ answer: 'warm cache' }],
+      singleShotRequest,
+    })
+    const result = await harness.runEvaluate({
+      model: 'test/model',
+      criteria,
+      input: [{ answer: 'warm cache' }, { answer: 'fresh sample' }],
+      singleShotRequest,
+    })
+
+    expect(result.rows).toEqual([
+      expect.objectContaining({ status: 'success', score: 1, reason: 'helpful' }),
+      expect.objectContaining({ status: 'success', score: 1, reason: 'helpful' }),
     ])
   })
 })

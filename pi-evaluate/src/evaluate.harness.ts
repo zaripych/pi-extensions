@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { faker } from '@faker-js/faker'
@@ -92,9 +92,13 @@ async function readResultRows(outputPath: string): Promise<unknown[]> {
     .map((line) => resultRowSchema.parse(JSON.parse(line)))
 }
 
-function createDepsWithSingleShotRequest(singleShotRequest: SingleShotRequest) {
+function createDepsWithSingleShotRequest(params: {
+  singleShotRequest: SingleShotRequest
+  cacheDir: string
+}) {
   return {
-    createCliRequestOutput: () => ({ singleShotRequest }),
+    createCliRequestOutput: () => ({ singleShotRequest: params.singleShotRequest }),
+    getCacheDir: async () => params.cacheDir,
   }
 }
 
@@ -104,6 +108,7 @@ export const setupEvaluate = configureHarnesses(
   },
   async (userDeps) => {
     const tempDir = await mkdtemp(join(tmpdir(), 'pi-evaluate-'))
+    const cacheDir = join(tempDir, '.eval-cache')
     const deps = configureDependencies(
       { inferTypesFrom: { defaultDeps: evaluate.defaultDeps }, userDeps },
       {
@@ -114,8 +119,28 @@ export const setupEvaluate = configureHarnesses(
               reason: faker.lorem.sentence(),
             }),
         }),
+        getCacheDir: async () => cacheDir,
       }
     )
+
+    async function readCacheEntries(): Promise<string[]> {
+      try {
+        return (await readdir(cacheDir)).sort()
+      } catch (error) {
+        if (missingFileErrorSchema.safeParse(error).success) {
+          return []
+        }
+        throw error
+      }
+    }
+
+    async function overwriteCacheEntries(content: string): Promise<void> {
+      await Promise.all(
+        (await readCacheEntries()).map((entry) =>
+          writeFile(join(cacheDir, entry, 'result.json'), content)
+        )
+      )
+    }
 
     async function writeTempFile(content = ''): Promise<string> {
       const path = join(tempDir, `temp-${faker.string.alphanumeric(8)}`)
@@ -137,7 +162,10 @@ export const setupEvaluate = configureHarnesses(
       const evaluateDeps =
         params.singleShotRequest === undefined
           ? deps
-          : createDepsWithSingleShotRequest(params.singleShotRequest)
+          : createDepsWithSingleShotRequest({
+              singleShotRequest: params.singleShotRequest,
+              cacheDir,
+            })
 
       const summary = await evaluate(
         {
@@ -159,6 +187,9 @@ export const setupEvaluate = configureHarnesses(
 
     return {
       ...deps,
+      cacheDir,
+      readCacheEntries,
+      overwriteCacheEntries,
       writeTempFile,
       evaluate: withDeps(evaluate, deps),
       runEvaluate,

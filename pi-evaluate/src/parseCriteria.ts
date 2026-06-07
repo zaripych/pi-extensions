@@ -1,6 +1,6 @@
 import { parse } from 'yaml'
 import { z } from 'zod'
-import { hashContent } from './hashContent'
+import { shortHash } from './shortHash'
 
 const scoreRangeSchema = z.enum(['binary', 'triple'])
 
@@ -47,6 +47,6 @@ export function parseCriteria(params: {
     scoreRange: parsed.data['score-range'],
     fields: (parsed.data.fields ?? []).map((field) => field.name),
     body: body ?? '',
-    criteriaHash: hashContent(params.source),
+    criteriaHash: shortHash(params.source),
   }
 }

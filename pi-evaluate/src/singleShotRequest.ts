@@ -5,6 +5,7 @@ import { z } from 'zod'
 export type SingleShotRequest = <Output>(params: {
   prompt: string
   schema: z.ZodType<Output>
+  seed: number
   signal?: AbortSignal
 }) => Promise<Output>
 

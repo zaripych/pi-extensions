@@ -1,5 +1,5 @@
-import { hashContent } from './hashContent'
 import type { Criteria } from './parseCriteria'
+import { shortHash } from './shortHash'
 import { shouldEvaluate } from './shouldEvaluate'
 import { singleShotEval } from './singleShotEval'
 import type { SingleShotRequest } from './singleShotRequest'
@@ -23,7 +23,7 @@ export type ResultRow =
   | (Base & { status: 'error'; description: string })
 
 function hashSample(sample: Sample): string {
-  return hashContent(
+  return shortHash(
     'text' in sample ? sample.text : JSON.stringify(sample.record)
   )
 }
@@ -65,6 +65,7 @@ export async function* evaluateSamples(params: {
           criteria: geval.body,
           scoreRange: geval.scoreRange,
           sample,
+          seed: params.seed,
           signal: params.signal,
         })
         yield {

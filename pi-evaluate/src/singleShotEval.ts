@@ -59,6 +59,7 @@ export async function singleShotEval(params: {
   criteria: string
   scoreRange: Criteria['scoreRange']
   sample: Sample
+  seed: number
   signal?: AbortSignal
 }): Promise<Verdict> {
   const verdict = await params.singleShotRequest({
@@ -68,6 +69,7 @@ export async function singleShotEval(params: {
       scoreRange: params.scoreRange,
     }),
     schema: buildVerdictSchema(params.scoreRange),
+    seed: params.seed,
     signal: params.signal,
   })
   return {
