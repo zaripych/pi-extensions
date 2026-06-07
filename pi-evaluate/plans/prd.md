@@ -2,8 +2,8 @@
 
 ## Summary
 
-`pi-evaluate` is a `pi` extension that runs **G-Eval** evaluations: single-shot,
-LLM-as-judge scoring of one or more **test-cases** against one or more authored
+`pi-evaluate` is a standalone CLI that runs **G-Eval** evaluations: single-shot,
+LLM-as-judge scoring of one or more **samples** against one or more authored
 **G-Eval criteria**, with a transparent result cache. It is designed to be run
 headless and composed in shell pipelines.
 
@@ -12,15 +12,27 @@ North-star use case: **evaluate LLM-generated plans for correctness.**
 Canonical invocation:
 
 ```sh
-process-data | jq ... | pi -p "/evaluate" --stdin-jsonl --criteria './criteria/*.md' --output ./eval-results.jsonl
+# standalone CLI (model passed explicitly; process substitution supported)
+evaluate --model openai/gpt-5.4-mini --criteria './criteria/*.md' --input-jsonl <(jq ...) --output ./eval-results.jsonl
 ```
+
+> **Pivot — input is file-based, never piped stdin.** Source flags name a file
+> path (or a `<(...)` process substitution): `--input-text` / `--input-jsonl`,
+> with the format in the flag name so extensionless `/dev/fd/N` paths work.
+
+> **Pivot — CLI-only delivery.** An earlier design also exposed this as a `pi`
+> extension with a `/evaluate` command; that surface was dropped in favor of a
+> single standalone CLI. The model is always passed explicitly as
+> `--model provider/id` and resolved through pi's model registry + auth storage.
+> The CLI builds a single-shot structured-output request and injects it into the
+> framework-independent core.
 
 ## Goals
 
 - As simple as possible: one metric type (G-Eval), done well, integrated with `pi`.
 - Deterministic, inspectable result cache so repeated runs don't re-spend tokens.
 - Provider-agnostic (works with any model in `pi`'s registry, including Anthropic).
-- Shape-safe: a test-case is only ever judged by criteria it actually matches.
+- Shape-safe: a sample is only ever judged by criteria it actually matches.
 
 ## Non-goals (explicit scope boundaries)
 
@@ -33,7 +45,7 @@ process-data | jq ... | pi -p "/evaluate" --stdin-jsonl --criteria './criteria/*
   discrete integers. (See Appendix: SDK spike.)
 - **No LLM step-generation.** Evaluation steps are authored by hand in the
   criterion body. The tool never generates steps at eval time.
-- **No multi-call chaining.** Each `(criterion × test-case)` is exactly one
+- **No multi-call chaining.** Each `(criterion × sample)` is exactly one
   inference call; the model does multi-step reasoning internally.
 - **No pass/fail threshold.** The tool emits the score; thresholding is a
   downstream consumer concern.
@@ -48,8 +60,8 @@ A markdown file = YAML frontmatter + body.
   - `name` — optional; defaults to the file name.
   - `score-range` — `binary` (`{0,1}`) or `triple` (`{0,1,2}`).
   - `fields` — optional list of `{ name, description }`. Declares which named
-    test-case fields this criterion consumes; the body references them. Omitting
-    `fields` makes the criterion evaluate the entire test-case.
+    sample fields this criterion consumes; the body references them. Omitting
+    `fields` makes the criterion evaluate the entire sample.
 - **Body:** the authored evaluation procedure (rubric, level definitions,
   red-flags) — i.e. the step-by-step reasoning instructions, referencing the
   declared fields. Injected verbatim into the single judge prompt.
@@ -74,7 +86,7 @@ Does the criterion evaluate ONE coherent quality dimension?
 **Score 2:** ...
 ```
 
-### test-case
+### sample
 
 A record of named field values supplying content for one evaluation. Supplied as
 a JSON object (one per JSONL line) or as a raw text blob.
@@ -87,7 +99,7 @@ input + output-schema + model + seed  ->  LLM  ->  { reason, score }
 
 - **Single inference call.** Structured output `{ reason, score }`. The model
   walks the authored steps via its own internal chain-of-thought.
-- **`input`** = the assembled prompt (criterion body + test-case field values).
+- **`input`** = the assembled prompt (criterion body + sample field values).
 - **`score`** = integer in the criterion's range; **normalized to `[0,1]`** in
   output: `binary {0,1}→{0,1}`, `triple {0,1,2}→{0,0.5,1}`.
 - **`reason`** = the judge's generated reasoning.
@@ -104,15 +116,15 @@ input + output-schema + model + seed  ->  LLM  ->  { reason, score }
 
 ## Input
 
-- Source is **mutually exclusive**: `--target <file>` XOR
-  `--stdin-jsonl` / `--stdin-text`.
-- **JSONL** (`--stdin-jsonl`, or `--target file.jsonl`): one test-case (JSON
-  object) per line. **N lines = N test-cases.** No JSON-array form (avoids
-  object-vs-array sniffing).
-- **Text** (`--stdin-text`, or `--target file.txt`): the whole blob is one
-  test-case.
+- Source is **mutually exclusive**: `--input-text <file>` XOR
+  `--input-jsonl <file>`. Each names a file path or a `<(...)` process
+  substitution; piped stdin is not a source (see Pivot above).
+- **JSONL** (`--input-jsonl <file>`): one sample (JSON object) per line.
+  **N lines = N samples.** No JSON-array form (avoids object-vs-array
+  sniffing).
+- **Text** (`--input-text <file>`): the whole blob is one sample.
 - `--criteria <glob>`: one or more criterion `.md` files.
-- **Execution:** the full **N×M matrix** — every test-case × every criterion.
+- **Execution:** the full **N×M matrix** — every sample × every criterion.
 
 ### Field validation (before any LLM call)
 
@@ -138,43 +150,45 @@ don't match the criterion's expected shape. Different shapes → different crite
 ## Output
 
 - **JSONL** appended to the `--output` file (default `./eval-results.jsonl`),
-  one row per completed `(criterion × test-case [× seed])` cell, flushed as it
+  one row per completed `(criterion × sample [× seed])` cell, flushed as it
   completes. No special stdout handling (see Appendix: SDK spike).
 - **Row schema:**
 
-  | field            | meaning                                                             |
-  | ---------------- | ------------------------------------------------------------------- |
-  | `name`           | criterion `name` or file name                                       |
-  | `score`          | normalized to `[0,1]`                                               |
-  | `reason`         | judge-generated reasoning                                           |
-  | `test-case`      | locator: `./file.jsonl#[0]`, stdin index `0`/`1`/…, or `./text.txt` |
-  | `test-case-hash` | `hash(test-case)[:7]`                                               |
-  | `criteria-hash`  | `hash(criterion)[:7]`                                               |
-  | `model`          | judge model used                                                    |
-  | `seed`           | seed used (distinguishes multiple-opinion rows)                     |
+  | field           | meaning                                         |
+  | --------------- | ----------------------------------------------- |
+  | `name`          | criterion `name` or file name                   |
+  | `score`         | normalized to `[0,1]`                           |
+  | `reason`        | judge-generated reasoning                       |
+  | `sample`        | locator: `./file.jsonl#[0]` or `./text.txt`     |
+  | `sample-hash`   | `hash(sample)[:7]`                              |
+  | `criteria-hash` | `hash(criterion)[:7]`                           |
+  | `model`         | judge model used                                |
+  | `seed`          | seed used (distinguishes multiple-opinion rows) |
 
-- The two 7-char hashes are **analysis/diff aids** (spot which test-cases /
+- The two 7-char hashes are **analysis/diff aids** (spot which samples /
   criteria changed between runs) — **not** the cache key.
 
 ## Model selection
 
-- Selected **only by `pi` input** (the running session model, `ctx.model`).
-  There is no separate `--model` flag; `pi -p` already chooses the model.
+- The model is passed explicitly as `--model provider/id` and resolved through
+  `ModelRegistry` + `AuthStorage`. There is no other provider configuration.
 
-## CLI / packaging
+## Delivery / packaging
 
-- A `pi` **extension** (workspace package `pi-evaluate`, `index.ts` exporting the
-  extension factory), registering:
-  - command **`/evaluate`** (`pi.registerCommand`)
-  - flags (`pi.registerFlag` / `pi.getFlag`): `--criteria`, `--target`,
-    `--stdin-jsonl`, `--stdin-text`, `--output`
-- Headless usage relies on `pi -p` print mode, which reads piped stdin.
+A framework-independent core (`evaluate`) reached through a single standalone CLI
+adapter that builds a structured-output request and hands it to the core:
+
+- A **standalone CLI** (`bin/evaluate.ts`, `node --import tsx`) exposing the
+  flags `--model`, `--criteria`, `--input-text`, `--input-jsonl`, `--output`,
+  resolving the model from the registry itself and injecting the single-shot
+  request into the core.
+- Headless usage relies on direct CLI invocation; it does not read piped stdin
+  as a sample source.
 
 ## Open / deferred
 
-- **Raw-stdout output mode** — needs a runtime spike of `pi -p` to confirm an
-  extension can emit clean JSON on stdout without colliding with pi's own print
-  output. Deferred; file output is the v1 contract.
+- **Raw-stdout output mode** — emitting result rows on stdout instead of a file.
+  Deferred; file output is the v1 contract.
 - **Self-consistency aggregation** — the row schema already supports N opinions
   via per-seed rows; combining them into a single verdict is deferred.
 
@@ -189,10 +203,28 @@ don't match the criterion's expected shape. Different shapes → different crite
   auth, and multi-provider abstraction — and still wouldn't work on Anthropic.
 - **Extensions can register CLI flags and commands:** `pi.registerCommand`,
   `pi.registerFlag(name, { type: 'boolean' | 'string', default })`,
-  `pi.getFlag(name)`. `-p` print mode reads piped stdin and merges it into the
-  prompt.
+  `pi.getFlag(name)`. `-p` print mode reads piped stdin and **merges it into the
+  prompt** — so an extension cannot use piped stdin as a sample source, and
+  source input must be file-based (`--input-text` / `--input-jsonl`). This
+  constraint (plus the dropped extension surface) is why source input is
+  file-based in the CLI.
+- **Slash-command flags must be real pi CLI flags.** `pi --criteria … -p
+"/evaluate"` reaches `getFlag`; flags typed inside the `/evaluate …` argument
+  string do not.
+- **`node --import tsx`, not the `tsx` CLI**, for the standalone bin: the `tsx`
+  CLI respawns a child process and drops `<(...)` process-substitution fds.
 - **No clean raw-stdout channel for extensions.** The command handler returns
   `void`; output APIs (`ctx.ui.notify`, `pi.sendMessage`) route through pi's
   message/print layer, and `-p` also prints pi's own response on stdout. An
   extension is plain Node so `fs` file output is fully under its control — hence
   file-based JSONL output for v1.
+- **Vercel AI SDK comparison (experiment, removed): no measurable latency win.**
+  A throwaway spike wired `generateObject` and then `generateText` from the
+  Vercel AI SDK behind a flag and ran them against `openai/gpt-5.4-mini` and
+  `anthropic/claude-sonnet-4-6`, sharing pi's model/auth resolution. Findings:
+  (1) **structured output is not measurably slower** than free-text generation —
+  the long-standing "structured outputs are slow" claim did not reproduce; and
+  (2) **pi-ai's `onPayload` structured-output path adds no meaningful latency**
+  over the AI SDK. Conclusion: stay on `pi-ai` with provider-native structured
+  output via `onPayload` (no extra dependency, keeps the model registry / auth /
+  multi-provider abstraction). The AI SDK dependency and scaffolding were removed.

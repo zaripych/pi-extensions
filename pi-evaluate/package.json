@@ -1,0 +1,37 @@
+{
+  "name": "pi-evaluate",
+  "version": "0.1.0",
+  "description": "CLI for headless G-Eval evaluations",
+  "type": "module",
+  "bin": {
+    "evaluate": "./bin/evaluate.ts"
+  },
+  "scripts": {
+    "evaluate": "node --import tsx bin/evaluate.ts",
+    "test": "vitest run",
+    "test:e2e": "E2E=1 vitest run src/e2e",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "g-eval",
+    "evaluation",
+    "cli"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@faker-js/faker": "^10.4.0",
+    "@types/node": "^25.8.0",
+    "@types/yargs": "^17.0.35",
+    "dedent": "1.7.2",
+    "foundation": "workspace:*",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "yargs": "^18.0.0",
+    "zod": "^4.4.3"
+  }
+}
