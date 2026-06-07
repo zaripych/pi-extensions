@@ -312,6 +312,130 @@ describe('evaluate', () => {
     expect(requestCount).toBe(2)
   })
 
+  it('treats each JSONL line as one sample under --input-jsonl', async () => {
+    await using harness = await setup()
+
+    const result = await harness.runEvaluate({
+      criteria: markdown`
+        ---
+        score-range: binary
+        ---
+
+        Score whether the answer is helpful.
+      `,
+      inputJsonl: [{ answer: 'first' }, { answer: 'second' }, { answer: 'third' }],
+      singleShotRequest: async ({ schema }) =>
+        schema.parse({ score: 1, reason: 'helpful' }),
+    })
+
+    expect(result.rows).toEqual([
+      { status: 'success', score: expect.any(Number), reason: expect.stringMatching(/\S/) },
+      { status: 'success', score: expect.any(Number), reason: expect.stringMatching(/\S/) },
+      { status: 'success', score: expect.any(Number), reason: expect.stringMatching(/\S/) },
+    ])
+  })
+
+  it('treats the whole file as one sample under --input-text', async () => {
+    await using harness = await setup()
+    let requestCount = 0
+
+    const result = await harness.runEvaluate({
+      criteria: markdown`
+        ---
+        score-range: binary
+        ---
+
+        Score whether the text expresses a positive sentiment.
+      `,
+      inputText: 'line one\nline two\nline three',
+      singleShotRequest: async ({ schema }) => {
+        requestCount += 1
+        return schema.parse({ score: 1, reason: 'positive' })
+      },
+    })
+
+    expect(result.rows).toEqual([
+      { status: 'success', score: expect.any(Number), reason: expect.stringMatching(/\S/) },
+    ])
+    expect(requestCount).toBe(1)
+  })
+
+  it('aborts with a clear error when JSONL input is a JSON array instead of one object per line', async () => {
+    await using harness = await setup()
+
+    await expect(
+      harness.runEvaluate({
+        criteria: markdown`
+          ---
+          score-range: binary
+          ---
+
+          Score whether the answer is helpful.
+        `,
+        inputJsonl: '[{"answer": "first"}, {"answer": "second"}]\n',
+        singleShotRequest: async ({ schema }) =>
+          schema.parse({ score: 1, reason: 'helpful' }),
+      })
+    ).rejects.toThrow(/one JSON object per line/)
+  })
+
+  it('records a text sample paired with a field criterion as error and fails by default', async () => {
+    await using harness = await setup()
+    let requestCount = 0
+
+    const result = await harness.runEvaluate({
+      criteria: markdown`
+        ---
+        score-range: binary
+        fields:
+          - name: answer
+        ---
+
+        Score whether the answer is helpful.
+      `,
+      inputText: 'just a blob of text',
+      singleShotRequest: async ({ schema }) => {
+        requestCount += 1
+        return schema.parse({ score: 1, reason: 'ok' })
+      },
+    })
+
+    expect(result).toEqual({
+      rows: [{ status: 'error', description: expect.stringContaining('answer') }],
+      summary: { counts: { success: 0, skipped: 0, error: 1 }, outcome: 'failed' },
+    })
+    expect(requestCount).toBe(0)
+  })
+
+  it('records a text sample paired with a field criterion as skipped and succeeds with --allow-skip', async () => {
+    await using harness = await setup()
+    let requestCount = 0
+
+    const result = await harness.runEvaluate({
+      allowSkip: true,
+      criteria: markdown`
+        ---
+        score-range: binary
+        fields:
+          - name: answer
+        ---
+
+        Score whether the answer is helpful.
+      `,
+      inputText: 'just a blob of text',
+      singleShotRequest: async ({ schema }) => {
+        requestCount += 1
+        return schema.parse({ score: 1, reason: 'ok' })
+      },
+    })
+
+    expect(result).toEqual({
+      rows: [{ status: 'skipped', description: expect.stringContaining('answer') }],
+      summary: { counts: { success: 0, skipped: 1, error: 0 }, outcome: 'completed' },
+    })
+    expect(requestCount).toBe(0)
+  })
+
   it('forwards the abort signal to the model request', async () => {
     await using harness = await setup()
     const controller = new AbortController()

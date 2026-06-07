@@ -10,6 +10,30 @@ export type EvaluateInput = {
 
 const sampleSchema = z.record(z.string(), z.unknown())
 
+function previewLine(line: string): string {
+  return line.length > 80 ? `${line.slice(0, 80)}…` : line
+}
+
+function parseJsonlSample(line: string): Sample {
+  let value: unknown
+  try {
+    value = JSON.parse(line)
+  } catch (cause) {
+    throw new Error(
+      `JSONL input must contain one JSON object per line; could not parse line: ${previewLine(line)}`,
+      { cause }
+    )
+  }
+  const parsed = sampleSchema.safeParse(value)
+  if (!parsed.success) {
+    throw new Error(
+      `JSONL input must contain one JSON object per line, not a JSON array or other value; offending line: ${previewLine(line)}`,
+      { cause: parsed.error }
+    )
+  }
+  return parsed.data
+}
+
 async function readAll(stream: Readable): Promise<string> {
   const chunks: Buffer[] = []
   for await (const chunk of stream) {
@@ -29,6 +53,6 @@ export async function* readSamples(
   for await (const line of lines) {
     const trimmed = line.trim()
     if (trimmed.length === 0) continue
-    yield sampleSchema.parse(JSON.parse(trimmed))
+    yield parseJsonlSample(trimmed)
   }
 }

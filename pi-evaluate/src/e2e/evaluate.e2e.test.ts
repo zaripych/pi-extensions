@@ -58,6 +58,35 @@ describe('evaluate CLI', () => {
     })
   })
 
+  it('aborts with a clear error and no result row when both --input-text and --input-jsonl are passed', async () => {
+    await using harness = await setup()
+    const { runEvaluateCli, criteriaArgs, inputArgs, outputArgs } = harness
+
+    const result = await runEvaluateCli({
+      args: [
+        '--model',
+        'test/model',
+        ...(await criteriaArgs(markdown`
+          ---
+          score-range: binary
+          ---
+
+          Score whether the answer is helpful.
+        `)),
+        ...(await inputArgs('a blob of text')),
+        ...(await inputArgs([{ answer: 'hello' }])),
+        ...outputArgs(),
+      ],
+    })
+
+    expect(result).toEqual({
+      code: 1,
+      stderr: expect.stringContaining('only one of'),
+      stdout: '',
+      resultRows: [],
+    })
+  })
+
   it('aborts with a clear error and no result row when a criterion sets an unsupported score-range', async () => {
     await using harness = await setup()
     const { runEvaluateCli, criteriaArgs, inputArgs, outputArgs } = harness
