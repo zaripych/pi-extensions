@@ -7,8 +7,9 @@
 ## Actors and interface
 
 - **Operator** interacts through the standalone `evaluate` CLI, the flags
-  `--model`, `--criteria`, `--input-text`, `--input-jsonl`, `--output`, sample
-  files (or `<(...)` process substitutions), the output JSONL file, process
+  `--model`, `--criteria`, `--input-text`, `--input-jsonl`, `--output`,
+  `--allow-skip`, `--max-errors`, `--dry-run`, sample files (or `<(...)` process
+  substitutions), the output JSONL file (whose rows carry a `status`), process
   status/error output, and `.eval-cache` at the repo root.
 - **Calling system** consumes the output JSONL file, row schema, and process exit status from shell pipelines or downstream scripts.
 
@@ -27,6 +28,7 @@ piped stdin**: source flags name a file path or a `<(...)` process substitution
 - LLM step-generation is not included; evaluation steps are authored in the criterion body.
 - Multi-call chaining is not included; each `(criterion × sample)` cell produces one verdict.
 - Pass/fail thresholding is not included; downstream consumers decide thresholds.
+- Whole-run abort on a single sample/criterion shape mismatch is not included; mismatches are per-cell `skipped`/`error` rows (criterion-metadata validation still aborts up front). See `docs/adr/0001`.
 - Raw-stdout output mode is deferred; file-based JSONL output is the v1 contract.
 - Self-consistency aggregation is deferred.
 - Non-default seed selection is not specified in the PRD and is not added here.
@@ -42,6 +44,11 @@ piped stdin**: source flags name a file path or a `<(...)` process substitution
 - **seed** — the value that distinguishes independent verdicts for the same cell; v1 rows use the default `0`.
 - **result cache** — the transparent cache keyed by sample content, criterion content, output schema, model, and seed.
 - **normalized score** — the output score mapped to `[0,1]`: `binary` stays `{0,1}` and `triple` becomes `{0,0.5,1}`.
+- **status** — the outcome recorded on every result row: `success`, `skipped`, or `error`.
+- **success** — a cell whose criterion applied to its sample and produced a verdict.
+- **skipped** — a cell whose criterion could not be applied (a declared field is absent from the sample) when `--allow-skip` permits it; no tokens are spent and the exit status stays successful.
+- **error** — a cell that could not be applied without `--allow-skip`, or that failed at evaluation time (model request failed); errors count toward `--max-errors`.
+- **unmatchable cell** — a `(criterion × sample)` pairing where the criterion declares a field the sample does not supply.
 
 ## Build conventions (apply across all phases)
 
@@ -85,14 +92,18 @@ Prove the command can receive input, obtain one verdict, and write one consumabl
 - When the operator runs `evaluate --model <provider/id> --criteria <single criterion with no fields defined> --input-jsonl <file with one JSON object> --output <file>`, the output file receives exactly one JSONL row with a numeric `score` and non-empty `reason`.
 - When the operator runs `evaluate` without `--criteria`, the run exits unsuccessfully with a clear error and no result row is written.
 
-### Phase 1 — Shape-safe JSONL criteria and samples
+### Phase 1 — Shape-safe criteria and per-cell status
 
-Make invalid JSONL criterion/sample pairings fail before token spend, and make valid fielded criteria safe to run.
+Validate criteria up front, and classify every `(criterion × sample)` cell into a `status` of `success`, `skipped`, or `error` instead of aborting the whole run on a shape mismatch.
 
-- When a criterion declares `fields` and a JSONL sample contains every declared key, the output file receives a completed result row for that criterion/sample.
-- When a criterion declares `fields` and a JSONL sample is missing any declared key, the run exits unsuccessfully with a clear error before writing result rows or spending evaluation tokens.
-- When a criterion declares `fields` and a JSONL sample supplies an empty value for a declared key, the output file still receives a completed result row for that criterion/sample.
-- When a criterion omits required scoring metadata or uses an unsupported `score-range`, the run exits unsuccessfully with a clear error and no result row is written for that criterion.
+- When a criterion omits `score-range` or sets it to an unsupported value, the run exits unsuccessfully with a clear error and no result row is written (criterion validation happens before any cell is evaluated or any token is spent).
+- When a criterion declares `fields` and a JSONL sample contains every declared key, the output file receives a result row for that cell with `status` `success`, a numeric `score`, and a non-empty `reason`.
+- When a criterion declares `fields` and a JSONL sample supplies an empty value for a declared key, the cell still completes with `status` `success` — key presence, not value content, is what is required.
+- When a criterion declares `fields` and a JSONL sample is missing any declared key, that cell is unmatchable: with no `--allow-skip` its result row carries `status` `error`, and because the default error tolerance is zero it stops the run and exits unsuccessfully.
+- When the operator passes `--allow-skip`, an unmatchable cell instead produces a result row with `status` `skipped`, the run continues, and the run exits successfully.
+- When a cell fails at evaluation time (the model request fails), its result row carries `status` `error` and is counted the same as a shape mismatch.
+- When the operator passes `--max-errors <n>`, the run keeps producing rows until the nth `error` row, at which point it stops and exits unsuccessfully; with fewer than `n` errors it runs to completion and exits successfully (the default is `0`, i.e. fail on the first error).
+- When the operator passes `--dry-run`, the run reports how many cells are `success`-eligible, `skipped`, or `error` without spending any evaluation tokens and without producing a judge verdict.
 
 ### Phase 2 — Source modes and source validation
 
@@ -102,7 +113,7 @@ Cover every supported input source and reject ambiguous or malformed source inpu
 - When the operator supplies `--input-text <file>`, the whole file is treated as one sample.
 - When the operator supplies both `--input-text` and `--input-jsonl`, the run exits unsuccessfully with a clear error and no result row is written.
 - When JSONL input is not one JSON object per line, including a JSON array form, the run exits unsuccessfully with a clear error instead of silent shape guessing.
-- When a text sample is paired with a criterion that declares `fields`, the run exits unsuccessfully with a clear error before writing result rows or spending evaluation tokens.
+- When a text sample is paired with a criterion that declares `fields`, that single cell is unmatchable and follows the Phase 1 `status` rules: `status` `error` by default (failing the run under the default zero error tolerance) or `status` `skipped` under `--allow-skip`, with no evaluation tokens spent on it.
 
 ### Phase 3 — Criteria selection, matrix execution, and sample identity
 
@@ -110,7 +121,7 @@ Make the full `N×M matrix` visible in output and give every row a stable sample
 
 - When the operator supplies `--criteria <glob>` matching multiple criterion files, every matched criterion participates in the evaluation matrix.
 - When `--criteria <glob>` matches no criterion files, the run exits unsuccessfully with a clear error and no result rows are written.
-- When the operator supplies `N` JSONL samples and `M` criteria, the output contains one result row for every `sample × criterion` cell that completes successfully.
+- When the operator supplies `N` JSONL samples and `M` criteria, the output contains one result row for every `sample × criterion` cell, each carrying its `status` (`success`, `skipped`, or `error`).
 - When samples are read from `--input-jsonl <file>`, output rows identify each row as `<file>#[n]`.
 - When a sample is read from `--input-text <file>`, output rows identify the file path.
 
@@ -118,7 +129,7 @@ Make the full `N×M matrix` visible in output and give every row a stable sample
 
 Make scores, reasons, model identity, seed identity, and row shape reliable for downstream consumers.
 
-- When a calling system reads result rows from any supported source mode or matrix size, every completed row uses the same JSON object shape: `name`, `score`, `reason`, `sample`, `sample-hash`, `criteria-hash`, `model`, and `seed`.
+- When a calling system reads result rows from any supported source mode or matrix size, every row carries `status`, `name`, `sample`, `sample-hash`, `criteria-hash`, `model`, and `seed`; a `success` row additionally carries `score` and `reason` (the verdict), while a `skipped` or `error` row instead carries `description` (the cause) and no `score` or `reason`.
 - When a criterion has no `name`, result rows use the criterion file name as `name`; when the criterion has a `name`, result rows use that value.
 - When a `binary` criterion is evaluated, the output `score` is the normalized score and is either `0` or `1`.
 - When a `triple` criterion is evaluated, the output `score` is the normalized score and is one of `0`, `0.5`, or `1`.
@@ -131,7 +142,7 @@ Make scores, reasons, model identity, seed identity, and row shape reliable for 
 
 Make repeated runs deterministic at the cache layer while keeping cache behavior transparent to the operator.
 
-- When a cell completes for the first time, the operator can inspect a corresponding `.eval-cache/<hash>/result.json` entry at the repo root.
+- When a `success` cell completes for the first time, the operator can inspect a corresponding `.eval-cache/<hash>/result.json` entry at the repo root; `skipped` and `error` cells spend no tokens and are not cached.
 - When the same sample content, criterion content, output schema, model, and seed are evaluated again, the output row repeats the cached `score` and `reason` for that cell.
 - When the sample content, criterion content, output schema, model, or seed changes, the run uses a distinct cache result for the changed cell.
 - When a run uses cached results and uncached results together, the output file contains the same row shape for both; cache hit versus miss does not require a separate skip or resume mode.
@@ -142,6 +153,6 @@ Make the command predictable in shell pipelines and during interrupted or repeat
 
 - When the operator omits `--output`, result rows are written to `./eval-results.jsonl`.
 - When the operator supplies `--output <file>`, result rows are appended to that file instead of replacing existing rows.
-- When cells complete during a run, each completed row is flushed to the output file so a later interruption still leaves completed rows available to downstream consumers.
+- When cells are produced during a run, each row (`success`, `skipped`, or `error`) is flushed to the output file as it is produced, so a later interruption — or a `--max-errors` stop — still leaves the already-flushed rows available to downstream consumers.
 - When the operator runs the CLI in a shell pipeline, the v1 result contract remains the output file rather than raw JSON on stdout.
 - When a calling system reads result rows, the `sample-hash` and `criteria-hash` values allow it to spot changed samples and criteria across runs.

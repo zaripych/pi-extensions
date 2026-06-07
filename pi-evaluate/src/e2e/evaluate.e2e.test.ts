@@ -29,6 +29,62 @@ describe('evaluate CLI', () => {
       resultRows: [],
     })
   })
+
+  it('aborts with a clear error and no result row when a criterion omits score-range', async () => {
+    await using harness = await setup()
+    const { runEvaluateCli, criteriaArgs, inputArgs, outputArgs } = harness
+
+    const result = await runEvaluateCli({
+      args: [
+        '--model',
+        'test/model',
+        ...(await criteriaArgs(markdown`
+          ---
+          name: helpfulness
+          ---
+
+          Score whether the answer is helpful.
+        `)),
+        ...(await inputArgs([{ answer: 'hello' }])),
+        ...outputArgs(),
+      ],
+    })
+
+    expect(result).toEqual({
+      code: 1,
+      stderr: expect.stringContaining('score-range'),
+      stdout: '',
+      resultRows: [],
+    })
+  })
+
+  it('aborts with a clear error and no result row when a criterion sets an unsupported score-range', async () => {
+    await using harness = await setup()
+    const { runEvaluateCli, criteriaArgs, inputArgs, outputArgs } = harness
+
+    const result = await runEvaluateCli({
+      args: [
+        '--model',
+        'test/model',
+        ...(await criteriaArgs(markdown`
+          ---
+          score-range: quintuple
+          ---
+
+          Score whether the answer is helpful.
+        `)),
+        ...(await inputArgs([{ answer: 'hello' }])),
+        ...outputArgs(),
+      ],
+    })
+
+    expect(result).toEqual({
+      code: 1,
+      stderr: expect.stringContaining('score-range'),
+      stdout: '',
+      resultRows: [],
+    })
+  })
 })
 
 describe.skipIf(!process.env.E2E)('evaluate CLI against real models', () => {
@@ -43,6 +99,11 @@ describe.skipIf(!process.env.E2E)('evaluate CLI against real models', () => {
           '--model',
           model,
           ...(await criteriaArgs(markdown`
+            ---
+            name: positive_sentiment
+            score-range: binary
+            ---
+
             Evaluate whether the sample text expresses a positive sentiment.
 
             Steps:
@@ -62,7 +123,11 @@ describe.skipIf(!process.env.E2E)('evaluate CLI against real models', () => {
         expect.objectContaining({
           code: 0,
           resultRows: [
-            { score: expect.any(Number), reason: expect.stringMatching(/.+/) },
+            {
+              status: 'success',
+              score: expect.any(Number),
+              reason: expect.stringMatching(/.+/),
+            },
           ],
         })
       )

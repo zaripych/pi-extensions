@@ -5,6 +5,7 @@ import { z } from 'zod'
 export type SingleShotRequest = <Output>(params: {
   prompt: string
   schema: z.ZodType<Output>
+  signal?: AbortSignal
 }) => Promise<Output>
 
 const payloadSchema = z.record(z.string(), z.unknown())
@@ -74,7 +75,7 @@ export function createSingleShotRequest(params: {
   model: Model<Api>
   modelRegistry: Pick<ModelRegistry, 'getApiKeyAndHeaders'>
 }): SingleShotRequest {
-  return async ({ prompt, schema }) => {
+  return async ({ prompt, schema, signal }) => {
     const auth = await params.modelRegistry.getApiKeyAndHeaders(params.model)
     if (!auth.ok) {
       throw new Error(`Could not resolve model credentials: ${auth.error}`)
@@ -87,6 +88,7 @@ export function createSingleShotRequest(params: {
       {
         apiKey: auth.apiKey,
         headers: auth.headers,
+        signal,
         onPayload: (payload) =>
           injectStructuredOutput({ payload, model: params.model, schema }),
       }
@@ -100,8 +102,10 @@ export function createSingleShotRequest(params: {
     let parsed: unknown
     try {
       parsed = JSON.parse(text)
-    } catch {
-      throw new Error(`Model did not return valid structured output: ${text}`)
+    } catch (cause) {
+      throw new Error(`Model did not return valid structured output: ${text}`, {
+        cause,
+      })
     }
     return schema.parse(parsed)
   }

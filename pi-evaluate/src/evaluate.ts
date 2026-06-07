@@ -1,10 +1,22 @@
 import { open, readFile } from 'node:fs/promises'
+import { basename } from 'node:path'
+import { pipeline } from 'node:stream/promises'
 import { createCliRequestOutput } from './createCliRequestOutput'
-import { evaluateStreams, type InputSource } from './evaluateStreams'
+import { evaluateSamples } from './evaluateSamples'
+import { parseCriterion } from './parseCriterion'
+import { readSamples } from './readSamples'
+import type { SingleShotRequest } from './singleShotRequest'
 
 const defaultDeps = {
   createCliRequestOutput,
 }
+
+export type EvaluateSummary = {
+  counts: { success: number; skipped: number; error: number }
+  outcome: 'completed' | 'failed' | 'aborted'
+}
+
+type InputSource = { type: 'text' | 'jsonl'; path: string }
 
 function chooseInputSource(params: {
   inputText: string | undefined
@@ -28,6 +40,9 @@ function chooseInputSource(params: {
   )
 }
 
+const dryRunRequest: SingleShotRequest = async ({ schema }) =>
+  schema.parse({ score: 0, reason: 'dry-run' })
+
 export async function evaluate(
   params: {
     model: string
@@ -35,33 +50,70 @@ export async function evaluate(
     inputText?: string
     inputJsonl?: string
     output: string
+    allowSkip?: boolean
+    maxErrors?: number
+    dryRun?: boolean
+    signal?: AbortSignal
   },
   deps = defaultDeps
-): Promise<void> {
+): Promise<EvaluateSummary> {
   const inputSource = chooseInputSource({
     inputText: params.inputText,
     inputJsonl: params.inputJsonl,
   })
 
-  const { singleShotRequest } = deps.createCliRequestOutput({
-    model: params.model,
+  const criterion = parseCriterion({
+    source: await readFile(params.criteria, 'utf8'),
+    fileName: basename(params.criteria),
   })
 
-  const criteria = await readFile(params.criteria, 'utf8')
+  const dryRun = params.dryRun ?? false
+  const singleShotRequest = dryRun
+    ? dryRunRequest
+    : deps.createCliRequestOutput({ model: params.model }).singleShotRequest
 
   await using inputHandle = await open(inputSource.path, 'r')
-  await using outputHandle = await open(params.output, 'a')
 
-  await evaluateStreams({
-    input: { type: inputSource.type, stream: inputHandle.createReadStream() },
-    output: outputHandle.createWriteStream(),
-    criteria,
+  const rows = evaluateSamples({
+    samples: readSamples({
+      type: inputSource.type,
+      stream: inputHandle.createReadStream(),
+    }),
+    criterion,
     singleShotRequest,
-    onError: ({ error }) => {
-      console.error(error instanceof Error ? error.message : String(error))
-      process.exitCode = 1
-    },
+    allowSkip: params.allowSkip ?? false,
+    signal: params.signal,
   })
+
+  const counts = { success: 0, skipped: 0, error: 0 }
+
+  if (dryRun) {
+    for await (const row of rows) {
+      counts[row.status] += 1
+    }
+    return { counts, outcome: params.signal?.aborted ? 'aborted' : 'completed' }
+  }
+
+  const errorThreshold = Math.max(params.maxErrors ?? 0, 1)
+  await using outputHandle = await open(params.output, 'a')
+  let stoppedForErrors = false
+  await pipeline(async function* () {
+    for await (const row of rows) {
+      counts[row.status] += 1
+      yield `${JSON.stringify(row)}\n`
+      if (row.status === 'error' && counts.error >= errorThreshold) {
+        stoppedForErrors = true
+        return
+      }
+    }
+  }, outputHandle.createWriteStream())
+
+  const outcome = params.signal?.aborted
+    ? 'aborted'
+    : stoppedForErrors
+      ? 'failed'
+      : 'completed'
+  return { counts, outcome }
 }
 
 evaluate.defaultDeps = defaultDeps

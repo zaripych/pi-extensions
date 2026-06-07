@@ -18,6 +18,10 @@ type RunEvaluateParams = {
   inputText?: string
   inputJsonl?: JsonlInput
   singleShotRequest?: SingleShotRequest
+  allowSkip?: boolean
+  maxErrors?: number
+  dryRun?: boolean
+  signal?: AbortSignal
 }
 
 const resultRowSchema = z.unknown()
@@ -84,8 +88,18 @@ async function writeInputSources(params: {
   return inputSources
 }
 
+const missingFileErrorSchema = z.object({ code: z.literal('ENOENT') })
+
 async function readResultRows(outputPath: string): Promise<unknown[]> {
-  const contents = await readFile(outputPath, 'utf8')
+  let contents: string
+  try {
+    contents = await readFile(outputPath, 'utf8')
+  } catch (error) {
+    if (missingFileErrorSchema.safeParse(error).success) {
+      return []
+    }
+    throw error
+  }
   const trimmed = contents.trim()
   if (trimmed.length === 0) {
     return []
@@ -121,7 +135,9 @@ export const setupEvaluate = configureHarnesses(
       }
     )
 
-    async function runEvaluate(params: RunEvaluateParams): Promise<unknown[]> {
+    async function runEvaluate(
+      params: RunEvaluateParams
+    ): Promise<{ rows: unknown[]; summary: Awaited<ReturnType<typeof evaluate>> }> {
       const id = faker.string.alphanumeric(8)
       const criteriaPath = join(tempDir, `criterion-${id}.md`)
       const outputPath = join(tempDir, `eval-results-${id}.jsonl`)
@@ -138,18 +154,22 @@ export const setupEvaluate = configureHarnesses(
           ? deps
           : createDepsWithSingleShotRequest(params.singleShotRequest)
 
-      await evaluate(
+      const summary = await evaluate(
         {
           model: params.model ?? `test/${faker.string.alphanumeric(8)}`,
           criteria: criteriaPath,
           inputText: inputSources.inputText,
           inputJsonl: inputSources.inputJsonl,
           output: outputPath,
+          allowSkip: params.allowSkip,
+          maxErrors: params.maxErrors,
+          dryRun: params.dryRun,
+          signal: params.signal,
         },
         evaluateDeps
       )
 
-      return readResultRows(outputPath)
+      return { rows: await readResultRows(outputPath), summary }
     }
 
     return {

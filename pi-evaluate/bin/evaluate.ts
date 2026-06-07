@@ -32,16 +32,47 @@ async function main(): Promise<void> {
       default: 'eval-results.jsonl',
       describe: 'Path of the JSONL output file',
     })
+    .option('allow-skip', {
+      type: 'boolean',
+      default: false,
+      describe: 'Record unmatchable cells as skipped instead of error',
+    })
+    .option('max-errors', {
+      type: 'number',
+      default: 0,
+      describe: 'Stop the run once this many error rows are produced',
+    })
+    .option('dry-run', {
+      type: 'boolean',
+      default: false,
+      describe: 'Classify the matrix and report counts without spending tokens',
+    })
     .strict()
     .parseAsync()
 
-  await evaluate({
+  const controller = new AbortController()
+  process.on('SIGINT', () => controller.abort())
+
+  const summary = await evaluate({
     model: argv.model,
     criteria: argv.criteria,
     inputText: argv.inputText,
     inputJsonl: argv.inputJsonl,
     output: argv.output,
+    allowSkip: argv.allowSkip,
+    maxErrors: argv.maxErrors,
+    dryRun: argv.dryRun,
+    signal: controller.signal,
   })
+
+  if (argv.dryRun) {
+    process.stdout.write(
+      `success-eligible: ${summary.counts.success}, skipped: ${summary.counts.skipped}, error: ${summary.counts.error}\n`
+    )
+  }
+
+  const exitCodeByOutcome = { completed: 0, failed: 1, aborted: 130 } as const
+  process.exitCode = exitCodeByOutcome[summary.outcome]
 }
 
 main().catch((error) => {
