@@ -30,7 +30,7 @@ describe('evaluate CLI', () => {
     })
   })
 
-  it('aborts with a clear error and no result row when a criterion omits score-range', async () => {
+  it('aborts with a clear error and no result row when criteria omit score-range', async () => {
     await using harness = await setup()
     const { runEvaluateCli, criteriaArgs, inputArgs, outputArgs } = harness
 
@@ -87,7 +87,30 @@ describe('evaluate CLI', () => {
     })
   })
 
-  it('aborts with a clear error and no result row when a criterion sets an unsupported score-range', async () => {
+  it('aborts with a clear error and no result row when --criteria matches no files', async () => {
+    await using harness = await setup()
+    const { runEvaluateCli, inputArgs, outputArgs } = harness
+
+    const result = await runEvaluateCli({
+      args: [
+        '--model',
+        'test/model',
+        '--criteria',
+        'no-such-criteria-glob-*.md',
+        ...(await inputArgs([{ answer: 'hello' }])),
+        ...outputArgs(),
+      ],
+    })
+
+    expect(result).toEqual({
+      code: 1,
+      stderr: expect.stringContaining('No criteria files matched'),
+      stdout: '',
+      resultRows: [],
+    })
+  })
+
+  it('aborts with a clear error and no result row when criteria set an unsupported score-range', async () => {
     await using harness = await setup()
     const { runEvaluateCli, criteriaArgs, inputArgs, outputArgs } = harness
 

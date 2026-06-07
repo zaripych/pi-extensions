@@ -17,7 +17,7 @@ async function main(): Promise<void> {
     .option('criteria', {
       type: 'string',
       demandOption: true,
-      describe: 'Path of the G-Eval criterion file',
+      describe: 'Path or glob of the G-Eval criteria file(s)',
     })
     .option('input-text', {
       type: 'string',

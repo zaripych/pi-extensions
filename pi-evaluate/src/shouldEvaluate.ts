@@ -1,22 +1,22 @@
 import type { Sample } from './evaluateSamples'
-import type { Criterion } from './parseCriterion'
+import type { Criteria } from './parseCriteria'
 
 export function shouldEvaluate(params: {
   sample: Sample
-  criterion: Criterion
+  geval: Criteria
 }): { should: boolean; description?: string } {
-  if (params.criterion.fields.length === 0) {
+  if (params.geval.fields.length === 0) {
     return { should: true }
   }
-  const sample = params.sample
-  if (typeof sample === 'string') {
+  if ('text' in params.sample) {
     return {
       should: false,
-      description: `A text sample cannot supply the declared field(s): ${params.criterion.fields.join(', ')}.`,
+      description: `A text sample cannot supply the declared field(s): ${params.geval.fields.join(', ')}.`,
     }
   }
-  const missing = params.criterion.fields.filter(
-    (field) => !Object.hasOwn(sample, field)
+  const record = params.sample.record
+  const missing = params.geval.fields.filter(
+    (field) => !Object.hasOwn(record, field)
   )
   if (missing.length > 0) {
     return {

@@ -14,7 +14,7 @@ const frontmatterSchema = z.object({
   fields: z.array(fieldSchema).optional(),
 })
 
-export type Criterion = {
+export type Criteria = {
   name?: string
   scoreRange: z.infer<typeof scoreRangeSchema>
   fields: string[]
@@ -23,21 +23,21 @@ export type Criterion = {
 
 const frontmatterPattern = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/
 
-export function parseCriterion(params: {
+export function parseCriteria(params: {
   source: string
   fileName: string
-}): Criterion {
+}): Criteria {
   const match = frontmatterPattern.exec(params.source)
   if (match === null) {
     throw new Error(
-      `Criterion "${params.fileName}" is missing YAML frontmatter declaring score-range.`
+      `Criteria "${params.fileName}" is missing YAML frontmatter declaring score-range.`
     )
   }
   const [, rawFrontmatter, body] = match
   const parsed = frontmatterSchema.safeParse(parse(rawFrontmatter ?? ''))
   if (!parsed.success) {
     throw new Error(
-      `Criterion "${params.fileName}" has an invalid score-range: it must be "binary" or "triple".`
+      `Criteria "${params.fileName}" has an invalid score-range: it must be "binary" or "triple".`
     )
   }
   return {

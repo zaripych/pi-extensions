@@ -1,19 +1,19 @@
 import { z } from 'zod'
 import type { Sample } from './evaluateSamples'
-import type { Criterion } from './parseCriterion'
+import type { Criteria } from './parseCriteria'
 import type { SingleShotRequest } from './singleShotRequest'
 
 const rawScoreSchemaByRange = {
   binary: z.literal([0, 1]),
   triple: z.literal([0, 1, 2]),
-} satisfies Record<Criterion['scoreRange'], z.ZodType<number>>
+} satisfies Record<Criteria['scoreRange'], z.ZodType<number>>
 
 const maxRawScoreByRange = {
   binary: 1,
   triple: 2,
-} satisfies Record<Criterion['scoreRange'], number>
+} satisfies Record<Criteria['scoreRange'], number>
 
-function buildVerdictSchema(scoreRange: Criterion['scoreRange']) {
+function buildVerdictSchema(scoreRange: Criteria['scoreRange']) {
   return z.object({
     score: rawScoreSchemaByRange[scoreRange],
     reason: z.string().min(1),
@@ -22,7 +22,7 @@ function buildVerdictSchema(scoreRange: Criterion['scoreRange']) {
 
 export type Verdict = { score: number; reason: string }
 
-function describeScoreRange(scoreRange: Criterion['scoreRange']) {
+function describeScoreRange(scoreRange: Criteria['scoreRange']) {
   switch (scoreRange) {
     case 'binary':
       return 'The "score" must be an integer: 0 (fail) or 1 (pass).'
@@ -34,16 +34,16 @@ function describeScoreRange(scoreRange: Criterion['scoreRange']) {
 function buildPrompt(params: {
   criteria: string
   sample: Sample
-  scoreRange: Criterion['scoreRange']
+  scoreRange: Criteria['scoreRange']
 }): string {
   const renderedSample =
-    typeof params.sample === 'string'
-      ? params.sample
-      : JSON.stringify(params.sample, null, 2)
+    'text' in params.sample
+      ? params.sample.text
+      : JSON.stringify(params.sample.record, null, 2)
   return [
-    'You are an evaluator. Apply the following criterion to the sample.',
+    'You are an evaluator. Apply the following criteria to the sample.',
     '',
-    '## Criterion',
+    '## Criteria',
     params.criteria,
     '',
     '## Sample',
@@ -57,7 +57,7 @@ function buildPrompt(params: {
 export async function singleShotEval(params: {
   singleShotRequest: SingleShotRequest
   criteria: string
-  scoreRange: Criterion['scoreRange']
+  scoreRange: Criteria['scoreRange']
   sample: Sample
   signal?: AbortSignal
 }): Promise<Verdict> {

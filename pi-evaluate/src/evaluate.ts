@@ -1,9 +1,9 @@
-import { open, readFile } from 'node:fs/promises'
+import { glob, open, readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { createCliRequestOutput } from './createCliRequestOutput'
 import { evaluateSamples } from './evaluateSamples'
-import { parseCriterion } from './parseCriterion'
+import { parseCriteria } from './parseCriteria'
 import { readSamples } from './readSamples'
 import type { SingleShotRequest } from './singleShotRequest'
 
@@ -62,10 +62,20 @@ export async function evaluate(
     inputJsonl: params.inputJsonl,
   })
 
-  const criterion = parseCriterion({
-    source: await readFile(params.criteria, 'utf8'),
-    fileName: basename(params.criteria),
-  })
+  const gevalPaths = (await Array.fromAsync(glob(params.criteria))).sort()
+  if (gevalPaths.length === 0) {
+    throw new Error(
+      `No criteria files matched --criteria "${params.criteria}".`
+    )
+  }
+  const gevals = await Promise.all(
+    gevalPaths.map(async (path) =>
+      parseCriteria({
+        source: await readFile(path, 'utf8'),
+        fileName: basename(path),
+      })
+    )
+  )
 
   const dryRun = params.dryRun ?? false
   const singleShotRequest = dryRun
@@ -77,9 +87,10 @@ export async function evaluate(
   const rows = evaluateSamples({
     samples: readSamples({
       type: inputSource.type,
+      path: inputSource.path,
       stream: inputHandle.createReadStream(),
     }),
-    criterion,
+    gevals,
     singleShotRequest,
     allowSkip: params.allowSkip ?? false,
     signal: params.signal,

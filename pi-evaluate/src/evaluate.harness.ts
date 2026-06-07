@@ -9,14 +9,10 @@ import { z } from 'zod'
 import { evaluate } from './evaluate'
 import type { SingleShotRequest } from './singleShotRequest'
 
-type JsonlInput = string | Record<string, unknown>[]
-
 type RunEvaluateParams = {
   model?: string
-  criteria?: string
+  criteria?: string | string[]
   input?: string | Record<string, unknown>[]
-  inputText?: string
-  inputJsonl?: JsonlInput
   singleShotRequest?: SingleShotRequest
   allowSkip?: boolean
   maxErrors?: number
@@ -26,66 +22,52 @@ type RunEvaluateParams = {
 
 const resultRowSchema = z.unknown()
 
-async function writeJsonlInput(params: {
+async function writeCriteria(params: {
   tempDir: string
   id: string
-  inputJsonl: JsonlInput
+  criteria: string | string[] | undefined
 }): Promise<string> {
-  const inputPath = join(params.tempDir, `input-${params.id}.jsonl`)
-  const content =
-    typeof params.inputJsonl === 'string'
-      ? params.inputJsonl
-      : params.inputJsonl.map((sample) => `${JSON.stringify(sample)}\n`).join('')
-  await writeFile(inputPath, content)
-  return inputPath
+  const bodies =
+    params.criteria === undefined
+      ? [faker.lorem.paragraph()]
+      : Array.isArray(params.criteria)
+        ? params.criteria
+        : [params.criteria]
+  if (!Array.isArray(params.criteria)) {
+    const criteriaPath = join(params.tempDir, `criteria-${params.id}.md`)
+    await writeFile(criteriaPath, bodies[0] ?? '')
+    return criteriaPath
+  }
+  await Promise.all(
+    bodies.map((body, index) =>
+      writeFile(
+        join(params.tempDir, `criteria-${params.id}-${index}.md`),
+        body
+      )
+    )
+  )
+  return join(params.tempDir, `criteria-${params.id}-*.md`)
 }
 
-async function writeInputSources(params: {
+async function writeInput(params: {
   tempDir: string
   id: string
   input: string | Record<string, unknown>[] | undefined
-  inputText: string | undefined
-  inputJsonl: JsonlInput | undefined
 }): Promise<{ inputText?: string; inputJsonl?: string }> {
-  if (params.input !== undefined) {
-    if (params.inputText !== undefined || params.inputJsonl !== undefined) {
-      throw new Error('Pass input or explicit inputText/inputJsonl, not both.')
-    }
-    if (typeof params.input === 'string') {
-      return writeInputSources({
-        tempDir: params.tempDir,
-        id: params.id,
-        input: undefined,
-        inputText: params.input,
-        inputJsonl: undefined,
-      })
-    }
-    return writeInputSources({
-      tempDir: params.tempDir,
-      id: params.id,
-      input: undefined,
-      inputText: undefined,
-      inputJsonl: params.input,
-    })
+  if (params.input === undefined) {
+    return {}
   }
-
-  const inputSources: { inputText?: string; inputJsonl?: string } = {}
-
-  if (params.inputText !== undefined) {
+  if (typeof params.input === 'string') {
     const inputPath = join(params.tempDir, `input-${params.id}.txt`)
-    await writeFile(inputPath, params.inputText)
-    inputSources.inputText = inputPath
+    await writeFile(inputPath, params.input)
+    return { inputText: inputPath }
   }
-
-  if (params.inputJsonl !== undefined) {
-    inputSources.inputJsonl = await writeJsonlInput({
-      tempDir: params.tempDir,
-      id: params.id,
-      inputJsonl: params.inputJsonl,
-    })
-  }
-
-  return inputSources
+  const inputPath = join(params.tempDir, `input-${params.id}.jsonl`)
+  await writeFile(
+    inputPath,
+    params.input.map((sample) => `${JSON.stringify(sample)}\n`).join('')
+  )
+  return { inputJsonl: inputPath }
 }
 
 const missingFileErrorSchema = z.object({ code: z.literal('ENOENT') })
@@ -135,20 +117,23 @@ export const setupEvaluate = configureHarnesses(
       }
     )
 
+    async function writeTempFile(content = ''): Promise<string> {
+      const path = join(tempDir, `temp-${faker.string.alphanumeric(8)}`)
+      await writeFile(path, content)
+      return path
+    }
+
     async function runEvaluate(
       params: RunEvaluateParams
     ): Promise<{ rows: unknown[]; summary: Awaited<ReturnType<typeof evaluate>> }> {
       const id = faker.string.alphanumeric(8)
-      const criteriaPath = join(tempDir, `criterion-${id}.md`)
       const outputPath = join(tempDir, `eval-results-${id}.jsonl`)
-      await writeFile(criteriaPath, params.criteria ?? faker.lorem.paragraph())
-      const inputSources = await writeInputSources({
+      const criteriaPath = await writeCriteria({
         tempDir,
         id,
-        input: params.input,
-        inputText: params.inputText,
-        inputJsonl: params.inputJsonl,
+        criteria: params.criteria,
       })
+      const inputSources = await writeInput({ tempDir, id, input: params.input })
       const evaluateDeps =
         params.singleShotRequest === undefined
           ? deps
@@ -174,6 +159,7 @@ export const setupEvaluate = configureHarnesses(
 
     return {
       ...deps,
+      writeTempFile,
       evaluate: withDeps(evaluate, deps),
       runEvaluate,
       async [Symbol.asyncDispose]() {

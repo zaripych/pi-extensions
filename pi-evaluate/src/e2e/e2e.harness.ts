@@ -124,7 +124,7 @@ export const setupE2e = configureHarnesses(async () => {
   }
 
   async function criteriaArgs(criteria: string): Promise<string[]> {
-    const criteriaPath = join(tempDir, `criterion-${id}.md`)
+    const criteriaPath = join(tempDir, `criteria-${id}.md`)
     await writeFile(criteriaPath, criteria)
     return ['--criteria', criteriaPath]
   }

@@ -5,6 +5,7 @@ import type { Sample } from './evaluateSamples'
 
 export type EvaluateInput = {
   type: 'text' | 'jsonl'
+  path: string
   stream: Readable
 }
 
@@ -14,7 +15,7 @@ function previewLine(line: string): string {
   return line.length > 80 ? `${line.slice(0, 80)}…` : line
 }
 
-function parseJsonlSample(line: string): Sample {
+function parseJsonlSample(line: string): Record<string, unknown> {
   let value: unknown
   try {
     value = JSON.parse(line)
@@ -46,13 +47,15 @@ export async function* readSamples(
   input: EvaluateInput
 ): AsyncGenerator<Sample> {
   if (input.type === 'text') {
-    yield await readAll(input.stream)
+    yield { id: input.path, text: await readAll(input.stream) }
     return
   }
   const lines = createInterface({ input: input.stream, crlfDelay: Infinity })
+  let index = 0
   for await (const line of lines) {
     const trimmed = line.trim()
     if (trimmed.length === 0) continue
-    yield parseJsonlSample(trimmed)
+    yield { id: `${input.path}#[${index}]`, record: parseJsonlSample(trimmed) }
+    index += 1
   }
 }

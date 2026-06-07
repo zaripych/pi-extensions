@@ -122,14 +122,14 @@ Make the full `N×M matrix` visible in output and give every row a stable sample
 - When the operator supplies `--criteria <glob>` matching multiple criterion files, every matched criterion participates in the evaluation matrix.
 - When `--criteria <glob>` matches no criterion files, the run exits unsuccessfully with a clear error and no result rows are written.
 - When the operator supplies `N` JSONL samples and `M` criteria, the output contains one result row for every `sample × criterion` cell, each carrying its `status` (`success`, `skipped`, or `error`).
-- When samples are read from `--input-jsonl <file>`, output rows identify each row as `<file>#[n]`.
-- When a sample is read from `--input-text <file>`, output rows identify the file path.
+- When samples are read from `--input-jsonl <file>`, each output row records its `sampleId` as `<file>#[n]`.
+- When a sample is read from `--input-text <file>`, each output row records the file path as its `sampleId`.
 
 ### Phase 4 — Scoring and row contract
 
 Make scores, reasons, model identity, seed identity, and row shape reliable for downstream consumers.
 
-- When a calling system reads result rows from any supported source mode or matrix size, every row carries `status`, `name`, `sample`, `sample-hash`, `criteria-hash`, `model`, and `seed`; a `success` row additionally carries `score` and `reason` (the verdict), while a `skipped` or `error` row instead carries `description` (the cause) and no `score` or `reason`.
+- When a calling system reads result rows from any supported source mode or matrix size, every row carries `status`, `name`, `sampleId`, `sample-hash`, `criteria-hash`, `model`, and `seed`; a `success` row additionally carries `score` and `reason` (the verdict), while a `skipped` or `error` row instead carries `description` (the cause) and no `score` or `reason`.
 - When a criterion has no `name`, result rows use the criterion file name as `name`; when the criterion has a `name`, result rows use that value.
 - When a `binary` criterion is evaluated, the output `score` is the normalized score and is either `0` or `1`.
 - When a `triple` criterion is evaluated, the output `score` is the normalized score and is one of `0`, `0.5`, or `1`.

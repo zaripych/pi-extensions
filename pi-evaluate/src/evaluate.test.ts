@@ -14,7 +14,7 @@ const setup = combineHarnesses(setupEvaluate)
  */
 
 describe('evaluate', () => {
-  it('writes one consumable result row for one JSONL sample and one fieldless criterion', async () => {
+  it('writes one consumable result row for one JSONL sample and one fieldless criteria', async () => {
     await using harness = await setup()
 
     const result = await harness.runEvaluate({
@@ -27,7 +27,7 @@ describe('evaluate', () => {
 
         Score whether the answer is helpful.
       `,
-      inputJsonl: [{ answer: 'Use the harness, not the real model.' }],
+      input: [{ answer: 'Use the harness, not the real model.' }],
       singleShotRequest: async ({ schema }) =>
         schema.parse({ score: 1, reason: 'The answer is helpful.' }),
     })
@@ -35,6 +35,7 @@ describe('evaluate', () => {
     expect(result.rows).toEqual([
       {
         status: 'success',
+        sampleId: expect.any(String),
         score: expect.any(Number),
         reason: expect.stringMatching(/\S/),
       },
@@ -57,7 +58,7 @@ describe('evaluate', () => {
 
         Score whether the answer addresses the question.
       `,
-      inputJsonl: [{ question: 'Why is the sky blue?', answer: 'Rayleigh scattering.' }],
+      input: [{ question: 'Why is the sky blue?', answer: 'Rayleigh scattering.' }],
       singleShotRequest: async ({ schema }) =>
         schema.parse({ score: 1, reason: 'The answer addresses the question.' }),
     })
@@ -65,6 +66,7 @@ describe('evaluate', () => {
     expect(result.rows).toEqual([
       {
         status: 'success',
+        sampleId: expect.any(String),
         score: expect.any(Number),
         reason: expect.stringMatching(/\S/),
       },
@@ -84,7 +86,7 @@ describe('evaluate', () => {
 
         Score whether the answer is helpful.
       `,
-      inputJsonl: [{ answer: '' }],
+      input: [{ answer: '' }],
       singleShotRequest: async ({ schema }) =>
         schema.parse({ score: 0, reason: 'The answer is empty.' }),
     })
@@ -92,6 +94,7 @@ describe('evaluate', () => {
     expect(result.rows).toEqual([
       {
         status: 'success',
+        sampleId: expect.any(String),
         score: expect.any(Number),
         reason: expect.stringMatching(/\S/),
       },
@@ -113,7 +116,7 @@ describe('evaluate', () => {
 
         Score whether the answer addresses the question.
       `,
-      inputJsonl: [{ question: 'Why?' }, { question: 'Why?', answer: 'Because.' }],
+      input: [{ question: 'Why?' }, { question: 'Why?', answer: 'Because.' }],
       singleShotRequest: async ({ schema }) => {
         requestCount += 1
         return schema.parse({ score: 1, reason: 'ok' })
@@ -121,7 +124,7 @@ describe('evaluate', () => {
     })
 
     expect(result).toEqual({
-      rows: [{ status: 'error', description: expect.stringContaining('answer') }],
+      rows: [{ status: 'error', sampleId: expect.any(String), description: expect.stringContaining('answer') }],
       summary: { counts: { success: 0, skipped: 0, error: 1 }, outcome: 'failed' },
     })
     expect(requestCount).toBe(0)
@@ -142,16 +145,17 @@ describe('evaluate', () => {
 
         Score whether the answer addresses the question.
       `,
-      inputJsonl: [{ question: 'Why?' }, { question: 'Why?', answer: 'Because.' }],
+      input: [{ question: 'Why?' }, { question: 'Why?', answer: 'Because.' }],
       singleShotRequest: async ({ schema }) =>
         schema.parse({ score: 1, reason: 'Addresses the question.' }),
     })
 
     expect(result).toEqual({
       rows: [
-        { status: 'skipped', description: expect.stringContaining('answer') },
+        { status: 'skipped', sampleId: expect.any(String), description: expect.stringContaining('answer') },
         {
           status: 'success',
+          sampleId: expect.any(String),
           score: expect.any(Number),
           reason: expect.stringMatching(/\S/),
         },
@@ -171,7 +175,7 @@ describe('evaluate', () => {
 
         Score whether the answer is helpful.
       `,
-      inputJsonl: [{ answer: 'anything' }],
+      input: [{ answer: 'anything' }],
       singleShotRequest: async () => {
         throw new Error('model request failed')
       },
@@ -179,7 +183,7 @@ describe('evaluate', () => {
 
     expect(result).toEqual({
       rows: [
-        { status: 'error', description: expect.stringContaining('model request failed') },
+        { status: 'error', sampleId: expect.any(String), description: expect.stringContaining('model request failed') },
       ],
       summary: { counts: { success: 0, skipped: 0, error: 1 }, outcome: 'failed' },
     })
@@ -199,15 +203,15 @@ describe('evaluate', () => {
 
         Score whether the answer is helpful.
       `,
-      inputJsonl: [{ other: 1 }, { other: 2 }, { other: 3 }],
+      input: [{ other: 1 }, { other: 2 }, { other: 3 }],
       singleShotRequest: async ({ schema }) =>
         schema.parse({ score: 1, reason: 'ok' }),
     })
 
     expect(result).toEqual({
       rows: [
-        { status: 'error', description: expect.stringMatching(/\S/) },
-        { status: 'error', description: expect.stringMatching(/\S/) },
+        { status: 'error', sampleId: expect.any(String), description: expect.stringMatching(/\S/) },
+        { status: 'error', sampleId: expect.any(String), description: expect.stringMatching(/\S/) },
       ],
       summary: { counts: { success: 0, skipped: 0, error: 2 }, outcome: 'failed' },
     })
@@ -227,16 +231,17 @@ describe('evaluate', () => {
 
         Score whether the answer is helpful.
       `,
-      inputJsonl: [{ other: 1 }, { answer: 'present' }],
+      input: [{ other: 1 }, { answer: 'present' }],
       singleShotRequest: async ({ schema }) =>
         schema.parse({ score: 1, reason: 'helpful' }),
     })
 
     expect(result).toEqual({
       rows: [
-        { status: 'error', description: expect.stringMatching(/\S/) },
+        { status: 'error', sampleId: expect.any(String), description: expect.stringMatching(/\S/) },
         {
           status: 'success',
+          sampleId: expect.any(String),
           score: expect.any(Number),
           reason: expect.stringMatching(/\S/),
         },
@@ -260,7 +265,7 @@ describe('evaluate', () => {
 
         Score whether the answer is helpful.
       `,
-      inputJsonl: [{ other: 1 }, { answer: 'present' }],
+      input: [{ other: 1 }, { answer: 'present' }],
       singleShotRequest: async ({ schema }) => {
         requestCount += 1
         return schema.parse({ score: 1, reason: 'ok' })
@@ -288,7 +293,7 @@ describe('evaluate', () => {
 
         Score whether the answer is helpful.
       `,
-      inputJsonl: [{ answer: 'first' }, { answer: 'second' }, { answer: 'third' }],
+      input: [{ answer: 'first' }, { answer: 'second' }, { answer: 'third' }],
       singleShotRequest: async ({ schema }) => {
         requestCount += 1
         if (requestCount === 1) {
@@ -303,6 +308,7 @@ describe('evaluate', () => {
       rows: [
         {
           status: 'success',
+          sampleId: expect.any(String),
           score: expect.any(Number),
           reason: expect.stringMatching(/\S/),
         },
@@ -323,15 +329,15 @@ describe('evaluate', () => {
 
         Score whether the answer is helpful.
       `,
-      inputJsonl: [{ answer: 'first' }, { answer: 'second' }, { answer: 'third' }],
+      input: [{ answer: 'first' }, { answer: 'second' }, { answer: 'third' }],
       singleShotRequest: async ({ schema }) =>
         schema.parse({ score: 1, reason: 'helpful' }),
     })
 
     expect(result.rows).toEqual([
-      { status: 'success', score: expect.any(Number), reason: expect.stringMatching(/\S/) },
-      { status: 'success', score: expect.any(Number), reason: expect.stringMatching(/\S/) },
-      { status: 'success', score: expect.any(Number), reason: expect.stringMatching(/\S/) },
+      { status: 'success', sampleId: expect.any(String), score: expect.any(Number), reason: expect.stringMatching(/\S/) },
+      { status: 'success', sampleId: expect.any(String), score: expect.any(Number), reason: expect.stringMatching(/\S/) },
+      { status: 'success', sampleId: expect.any(String), score: expect.any(Number), reason: expect.stringMatching(/\S/) },
     ])
   })
 
@@ -347,7 +353,7 @@ describe('evaluate', () => {
 
         Score whether the text expresses a positive sentiment.
       `,
-      inputText: 'line one\nline two\nline three',
+      input: 'line one\nline two\nline three',
       singleShotRequest: async ({ schema }) => {
         requestCount += 1
         return schema.parse({ score: 1, reason: 'positive' })
@@ -355,31 +361,35 @@ describe('evaluate', () => {
     })
 
     expect(result.rows).toEqual([
-      { status: 'success', score: expect.any(Number), reason: expect.stringMatching(/\S/) },
+      { status: 'success', sampleId: expect.any(String), score: expect.any(Number), reason: expect.stringMatching(/\S/) },
     ])
     expect(requestCount).toBe(1)
   })
 
   it('aborts with a clear error when JSONL input is a JSON array instead of one object per line', async () => {
     await using harness = await setup()
+    const criteriaPath = await harness.writeTempFile(markdown`
+      ---
+      score-range: binary
+      ---
+
+      Score whether the answer is helpful.
+    `)
+    const inputPath = await harness.writeTempFile(
+      '[{"answer": "first"}, {"answer": "second"}]\n'
+    )
 
     await expect(
-      harness.runEvaluate({
-        criteria: markdown`
-          ---
-          score-range: binary
-          ---
-
-          Score whether the answer is helpful.
-        `,
-        inputJsonl: '[{"answer": "first"}, {"answer": "second"}]\n',
-        singleShotRequest: async ({ schema }) =>
-          schema.parse({ score: 1, reason: 'helpful' }),
+      harness.evaluate({
+        model: 'test/model',
+        criteria: criteriaPath,
+        inputJsonl: inputPath,
+        output: await harness.writeTempFile(),
       })
     ).rejects.toThrow(/one JSON object per line/)
   })
 
-  it('records a text sample paired with a field criterion as error and fails by default', async () => {
+  it('records a text sample paired with a field criteria as error and fails by default', async () => {
     await using harness = await setup()
     let requestCount = 0
 
@@ -393,7 +403,7 @@ describe('evaluate', () => {
 
         Score whether the answer is helpful.
       `,
-      inputText: 'just a blob of text',
+      input: 'just a blob of text',
       singleShotRequest: async ({ schema }) => {
         requestCount += 1
         return schema.parse({ score: 1, reason: 'ok' })
@@ -401,13 +411,13 @@ describe('evaluate', () => {
     })
 
     expect(result).toEqual({
-      rows: [{ status: 'error', description: expect.stringContaining('answer') }],
+      rows: [{ status: 'error', sampleId: expect.any(String), description: expect.stringContaining('answer') }],
       summary: { counts: { success: 0, skipped: 0, error: 1 }, outcome: 'failed' },
     })
     expect(requestCount).toBe(0)
   })
 
-  it('records a text sample paired with a field criterion as skipped and succeeds with --allow-skip', async () => {
+  it('records a text sample paired with a field criteria as skipped and succeeds with --allow-skip', async () => {
     await using harness = await setup()
     let requestCount = 0
 
@@ -422,7 +432,7 @@ describe('evaluate', () => {
 
         Score whether the answer is helpful.
       `,
-      inputText: 'just a blob of text',
+      input: 'just a blob of text',
       singleShotRequest: async ({ schema }) => {
         requestCount += 1
         return schema.parse({ score: 1, reason: 'ok' })
@@ -430,7 +440,7 @@ describe('evaluate', () => {
     })
 
     expect(result).toEqual({
-      rows: [{ status: 'skipped', description: expect.stringContaining('answer') }],
+      rows: [{ status: 'skipped', sampleId: expect.any(String), description: expect.stringContaining('answer') }],
       summary: { counts: { success: 0, skipped: 1, error: 0 }, outcome: 'completed' },
     })
     expect(requestCount).toBe(0)
@@ -450,7 +460,7 @@ describe('evaluate', () => {
 
         Score whether the answer is helpful.
       `,
-      inputJsonl: [{ answer: 'first' }],
+      input: [{ answer: 'first' }],
       singleShotRequest: async ({ schema, signal }) => {
         receivedSignal = signal
         return schema.parse({ score: 1, reason: 'ok' })
@@ -458,5 +468,101 @@ describe('evaluate', () => {
     })
 
     expect(receivedSignal).toBe(controller.signal)
+  })
+
+  it('runs every matched criteria against every sample as an N×M matrix', async () => {
+    await using harness = await setup()
+
+    const result = await harness.runEvaluate({
+      allowSkip: true,
+      criteria: [
+        markdown`
+          ---
+          score-range: binary
+          ---
+
+          Score whether the answer is helpful.
+        `,
+        markdown`
+          ---
+          score-range: binary
+          fields:
+            - name: missing_field
+          ---
+
+          Score whether the missing field is helpful.
+        `,
+      ],
+      input: [{ answer: 'first' }, { answer: 'second' }],
+      singleShotRequest: async ({ schema }) =>
+        schema.parse({ score: 1, reason: 'helpful' }),
+    })
+
+    expect(result.rows).toEqual([
+      { status: 'success', sampleId: expect.any(String), score: expect.any(Number), reason: expect.stringMatching(/\S/) },
+      { status: 'skipped', sampleId: expect.any(String), description: expect.stringContaining('missing_field') },
+      { status: 'success', sampleId: expect.any(String), score: expect.any(Number), reason: expect.stringMatching(/\S/) },
+      { status: 'skipped', sampleId: expect.any(String), description: expect.stringContaining('missing_field') },
+    ])
+    expect(result.summary).toEqual({
+      counts: { success: 2, skipped: 2, error: 0 },
+      outcome: 'completed',
+    })
+  })
+
+  it('fails with a clear error when --criteria matches no files', async () => {
+    await using harness = await setup()
+
+    await expect(
+      harness.evaluate({
+        model: 'test/model',
+        criteria: 'no-such-criteria-glob-*.md',
+        inputJsonl: 'no-such-input.jsonl',
+        output: 'unused-output.jsonl',
+      })
+    ).rejects.toThrow(/No criteria files matched/)
+  })
+
+  it('identifies each JSONL sample row as <file>#[n]', async () => {
+    await using harness = await setup()
+
+    const result = await harness.runEvaluate({
+      criteria: markdown`
+        ---
+        score-range: binary
+        ---
+
+        Score whether the answer is helpful.
+      `,
+      input: [{ answer: 'first' }, { answer: 'second' }],
+      singleShotRequest: async ({ schema }) =>
+        schema.parse({ score: 1, reason: 'helpful' }),
+    })
+
+    expect(result.rows).toEqual([
+      { status: 'success', sampleId: expect.stringMatching(/\.jsonl#\[0\]$/), score: expect.any(Number), reason: expect.stringMatching(/\S/) },
+      { status: 'success', sampleId: expect.stringMatching(/\.jsonl#\[1\]$/), score: expect.any(Number), reason: expect.stringMatching(/\S/) },
+    ])
+  })
+
+  it('identifies a text sample row by its file path', async () => {
+    await using harness = await setup()
+
+    const result = await harness.runEvaluate({
+      criteria: markdown`
+        ---
+        score-range: binary
+        ---
+
+        Score whether the text is positive.
+      `,
+      input: 'a blob of text',
+      singleShotRequest: async ({ schema }) =>
+        schema.parse({ score: 1, reason: 'positive' }),
+    })
+
+    expect(result.rows).toEqual([
+      { status: 'success', sampleId: expect.stringMatching(/\.txt$/), score: expect.any(Number), reason: expect.stringMatching(/\S/) },
+    ])
   })
 })
