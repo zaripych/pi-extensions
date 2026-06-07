@@ -33,12 +33,11 @@ describe('evaluate', () => {
     })
 
     expect(result.rows).toEqual([
-      {
+      expect.objectContaining({
         status: 'success',
-        sampleId: expect.any(String),
         score: expect.any(Number),
         reason: expect.stringMatching(/\S/),
-      },
+      }),
     ])
   })
 
@@ -64,12 +63,7 @@ describe('evaluate', () => {
     })
 
     expect(result.rows).toEqual([
-      {
-        status: 'success',
-        sampleId: expect.any(String),
-        score: expect.any(Number),
-        reason: expect.stringMatching(/\S/),
-      },
+      expect.objectContaining({ status: 'success' }),
     ])
   })
 
@@ -92,12 +86,7 @@ describe('evaluate', () => {
     })
 
     expect(result.rows).toEqual([
-      {
-        status: 'success',
-        sampleId: expect.any(String),
-        score: expect.any(Number),
-        reason: expect.stringMatching(/\S/),
-      },
+      expect.objectContaining({ status: 'success' }),
     ])
   })
 
@@ -124,7 +113,12 @@ describe('evaluate', () => {
     })
 
     expect(result).toEqual({
-      rows: [{ status: 'error', sampleId: expect.any(String), description: expect.stringContaining('answer') }],
+      rows: [
+        expect.objectContaining({
+          status: 'error',
+          description: expect.stringContaining('answer'),
+        }),
+      ],
       summary: { counts: { success: 0, skipped: 0, error: 1 }, outcome: 'failed' },
     })
     expect(requestCount).toBe(0)
@@ -152,13 +146,11 @@ describe('evaluate', () => {
 
     expect(result).toEqual({
       rows: [
-        { status: 'skipped', sampleId: expect.any(String), description: expect.stringContaining('answer') },
-        {
-          status: 'success',
-          sampleId: expect.any(String),
-          score: expect.any(Number),
-          reason: expect.stringMatching(/\S/),
-        },
+        expect.objectContaining({
+          status: 'skipped',
+          description: expect.stringContaining('answer'),
+        }),
+        expect.objectContaining({ status: 'success' }),
       ],
       summary: { counts: { success: 1, skipped: 1, error: 0 }, outcome: 'completed' },
     })
@@ -183,7 +175,10 @@ describe('evaluate', () => {
 
     expect(result).toEqual({
       rows: [
-        { status: 'error', sampleId: expect.any(String), description: expect.stringContaining('model request failed') },
+        expect.objectContaining({
+          status: 'error',
+          description: expect.stringContaining('model request failed'),
+        }),
       ],
       summary: { counts: { success: 0, skipped: 0, error: 1 }, outcome: 'failed' },
     })
@@ -210,8 +205,8 @@ describe('evaluate', () => {
 
     expect(result).toEqual({
       rows: [
-        { status: 'error', sampleId: expect.any(String), description: expect.stringMatching(/\S/) },
-        { status: 'error', sampleId: expect.any(String), description: expect.stringMatching(/\S/) },
+        expect.objectContaining({ status: 'error' }),
+        expect.objectContaining({ status: 'error' }),
       ],
       summary: { counts: { success: 0, skipped: 0, error: 2 }, outcome: 'failed' },
     })
@@ -238,13 +233,8 @@ describe('evaluate', () => {
 
     expect(result).toEqual({
       rows: [
-        { status: 'error', sampleId: expect.any(String), description: expect.stringMatching(/\S/) },
-        {
-          status: 'success',
-          sampleId: expect.any(String),
-          score: expect.any(Number),
-          reason: expect.stringMatching(/\S/),
-        },
+        expect.objectContaining({ status: 'error' }),
+        expect.objectContaining({ status: 'success' }),
       ],
       summary: { counts: { success: 1, skipped: 0, error: 1 }, outcome: 'completed' },
     })
@@ -305,14 +295,7 @@ describe('evaluate', () => {
     })
 
     expect(result).toEqual({
-      rows: [
-        {
-          status: 'success',
-          sampleId: expect.any(String),
-          score: expect.any(Number),
-          reason: expect.stringMatching(/\S/),
-        },
-      ],
+      rows: [expect.objectContaining({ status: 'success' })],
       summary: { counts: { success: 1, skipped: 0, error: 0 }, outcome: 'aborted' },
     })
     expect(requestCount).toBe(2)
@@ -335,9 +318,9 @@ describe('evaluate', () => {
     })
 
     expect(result.rows).toEqual([
-      { status: 'success', sampleId: expect.any(String), score: expect.any(Number), reason: expect.stringMatching(/\S/) },
-      { status: 'success', sampleId: expect.any(String), score: expect.any(Number), reason: expect.stringMatching(/\S/) },
-      { status: 'success', sampleId: expect.any(String), score: expect.any(Number), reason: expect.stringMatching(/\S/) },
+      expect.objectContaining({ status: 'success' }),
+      expect.objectContaining({ status: 'success' }),
+      expect.objectContaining({ status: 'success' }),
     ])
   })
 
@@ -361,7 +344,7 @@ describe('evaluate', () => {
     })
 
     expect(result.rows).toEqual([
-      { status: 'success', sampleId: expect.any(String), score: expect.any(Number), reason: expect.stringMatching(/\S/) },
+      expect.objectContaining({ status: 'success' }),
     ])
     expect(requestCount).toBe(1)
   })
@@ -411,7 +394,12 @@ describe('evaluate', () => {
     })
 
     expect(result).toEqual({
-      rows: [{ status: 'error', sampleId: expect.any(String), description: expect.stringContaining('answer') }],
+      rows: [
+        expect.objectContaining({
+          status: 'error',
+          description: expect.stringContaining('answer'),
+        }),
+      ],
       summary: { counts: { success: 0, skipped: 0, error: 1 }, outcome: 'failed' },
     })
     expect(requestCount).toBe(0)
@@ -440,7 +428,12 @@ describe('evaluate', () => {
     })
 
     expect(result).toEqual({
-      rows: [{ status: 'skipped', sampleId: expect.any(String), description: expect.stringContaining('answer') }],
+      rows: [
+        expect.objectContaining({
+          status: 'skipped',
+          description: expect.stringContaining('answer'),
+        }),
+      ],
       summary: { counts: { success: 0, skipped: 1, error: 0 }, outcome: 'completed' },
     })
     expect(requestCount).toBe(0)
@@ -499,10 +492,16 @@ describe('evaluate', () => {
     })
 
     expect(result.rows).toEqual([
-      { status: 'success', sampleId: expect.any(String), score: expect.any(Number), reason: expect.stringMatching(/\S/) },
-      { status: 'skipped', sampleId: expect.any(String), description: expect.stringContaining('missing_field') },
-      { status: 'success', sampleId: expect.any(String), score: expect.any(Number), reason: expect.stringMatching(/\S/) },
-      { status: 'skipped', sampleId: expect.any(String), description: expect.stringContaining('missing_field') },
+      expect.objectContaining({ status: 'success' }),
+      expect.objectContaining({
+        status: 'skipped',
+        description: expect.stringContaining('missing_field'),
+      }),
+      expect.objectContaining({ status: 'success' }),
+      expect.objectContaining({
+        status: 'skipped',
+        description: expect.stringContaining('missing_field'),
+      }),
     ])
     expect(result.summary).toEqual({
       counts: { success: 2, skipped: 2, error: 0 },
@@ -540,8 +539,8 @@ describe('evaluate', () => {
     })
 
     expect(result.rows).toEqual([
-      { status: 'success', sampleId: expect.stringMatching(/\.jsonl#\[0\]$/), score: expect.any(Number), reason: expect.stringMatching(/\S/) },
-      { status: 'success', sampleId: expect.stringMatching(/\.jsonl#\[1\]$/), score: expect.any(Number), reason: expect.stringMatching(/\S/) },
+      expect.objectContaining({ sampleId: expect.stringMatching(/\.jsonl#\[0\]$/) }),
+      expect.objectContaining({ sampleId: expect.stringMatching(/\.jsonl#\[1\]$/) }),
     ])
   })
 
@@ -562,7 +561,161 @@ describe('evaluate', () => {
     })
 
     expect(result.rows).toEqual([
-      { status: 'success', sampleId: expect.stringMatching(/\.txt$/), score: expect.any(Number), reason: expect.stringMatching(/\S/) },
+      expect.objectContaining({ sampleId: expect.stringMatching(/\.txt$/) }),
+    ])
+  })
+
+  it('carries the full row contract for success, skipped, and error rows', async () => {
+    await using harness = await setup()
+    let requestCount = 0
+
+    const result = await harness.runEvaluate({
+      model: 'test/model',
+      allowSkip: true,
+      maxErrors: 2,
+      criteria: markdown`
+        ---
+        name: helpfulness
+        score-range: binary
+        fields:
+          - name: answer
+        ---
+
+        Score whether the answer is helpful.
+      `,
+      input: [{ answer: 'present' }, { other: 'missing' }, { answer: 'boom' }],
+      singleShotRequest: async ({ schema }) => {
+        requestCount += 1
+        if (requestCount === 1) {
+          return schema.parse({ score: 1, reason: 'helpful' })
+        }
+        throw new Error('model request failed')
+      },
+    })
+
+    expect(result.rows).toEqual([
+      {
+        status: 'success',
+        name: 'helpfulness',
+        sampleId: expect.any(String),
+        sampleHash: expect.any(String),
+        criteriaHash: expect.any(String),
+        model: 'test/model',
+        seed: 0,
+        score: 1,
+        reason: 'helpful',
+      },
+      {
+        status: 'skipped',
+        name: 'helpfulness',
+        sampleId: expect.any(String),
+        sampleHash: expect.any(String),
+        criteriaHash: expect.any(String),
+        model: 'test/model',
+        seed: 0,
+        description: expect.stringContaining('answer'),
+      },
+      {
+        status: 'error',
+        name: 'helpfulness',
+        sampleId: expect.any(String),
+        sampleHash: expect.any(String),
+        criteriaHash: expect.any(String),
+        model: 'test/model',
+        seed: 0,
+        description: expect.stringContaining('model request failed'),
+      },
+    ])
+  })
+
+  it('uses the criterion file name as name when no name is declared', async () => {
+    await using harness = await setup()
+
+    const result = await harness.runEvaluate({
+      criteria: markdown`
+        ---
+        score-range: binary
+        ---
+
+        Score whether the answer is helpful.
+      `,
+      input: [{ answer: 'present' }],
+      singleShotRequest: async ({ schema }) =>
+        schema.parse({ score: 1, reason: 'helpful' }),
+    })
+
+    expect(result.rows).toEqual([
+      expect.objectContaining({ name: expect.stringMatching(/^criteria-.*\.md$/) }),
+    ])
+  })
+
+  it('uses the declared name when the criterion declares one', async () => {
+    await using harness = await setup()
+
+    const result = await harness.runEvaluate({
+      criteria: markdown`
+        ---
+        name: faithfulness
+        score-range: binary
+        ---
+
+        Score whether the answer is faithful.
+      `,
+      input: [{ answer: 'present' }],
+      singleShotRequest: async ({ schema }) =>
+        schema.parse({ score: 1, reason: 'faithful' }),
+    })
+
+    expect(result.rows).toEqual([
+      expect.objectContaining({ name: 'faithfulness' }),
+    ])
+  })
+
+  it('normalizes a binary score to 0 or 1', async () => {
+    await using harness = await setup()
+
+    const result = await harness.runEvaluate({
+      criteria: markdown`
+        ---
+        score-range: binary
+        ---
+
+        Score whether the answer is helpful.
+      `,
+      input: [{ answer: 'first' }, { answer: 'second' }],
+      singleShotRequest: async ({ schema }) =>
+        schema.parse({ score: 0, reason: 'not helpful' }),
+    })
+
+    expect(result.rows).toEqual([
+      expect.objectContaining({ score: 0 }),
+      expect.objectContaining({ score: 0 }),
+    ])
+  })
+
+  it('normalizes a triple score to 0, 0.5, or 1', async () => {
+    await using harness = await setup()
+    let requestCount = 0
+
+    const result = await harness.runEvaluate({
+      criteria: markdown`
+        ---
+        score-range: triple
+        ---
+
+        Score whether the answer is helpful.
+      `,
+      input: [{ answer: 'one' }, { answer: 'two' }, { answer: 'three' }],
+      singleShotRequest: async ({ schema }) => {
+        requestCount += 1
+        return schema.parse({ score: requestCount - 1, reason: 'graded' })
+      },
+    })
+
+    expect(result.rows).toEqual([
+      expect.objectContaining({ score: 0 }),
+      expect.objectContaining({ score: 0.5 }),
+      expect.objectContaining({ score: 1 }),
     ])
   })
 })

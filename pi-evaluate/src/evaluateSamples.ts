@@ -1,3 +1,4 @@
+import { hashContent } from './hashContent'
 import type { Criteria } from './parseCriteria'
 import { shouldEvaluate } from './shouldEvaluate'
 import { singleShotEval } from './singleShotEval'
@@ -7,27 +8,53 @@ export type Sample =
   | { id: string; text: string }
   | { id: string; record: Record<string, unknown> }
 
+type Base = {
+  name: string
+  sampleId: string
+  sampleHash: string
+  criteriaHash: string
+  model: string
+  seed: number
+}
+
 export type ResultRow =
-  | { status: 'success'; sampleId: string; score: number; reason: string }
-  | { status: 'skipped'; sampleId: string; description: string }
-  | { status: 'error'; sampleId: string; description: string }
+  | (Base & { status: 'success'; score: number; reason: string })
+  | (Base & { status: 'skipped'; description: string })
+  | (Base & { status: 'error'; description: string })
+
+function hashSample(sample: Sample): string {
+  return hashContent(
+    'text' in sample ? sample.text : JSON.stringify(sample.record)
+  )
+}
 
 export async function* evaluateSamples(params: {
   samples: AsyncIterable<Sample> | Iterable<Sample>
   gevals: Criteria[]
   singleShotRequest: SingleShotRequest
   allowSkip: boolean
+  model: string
+  seed: number
   signal?: AbortSignal
 }): AsyncGenerator<ResultRow> {
   for await (const sample of params.samples) {
     if (params.signal?.aborted) return
+    const sampleHash = hashSample(sample)
     for (const geval of params.gevals) {
       if (params.signal?.aborted) return
+      const base: Base = {
+        name: geval.name,
+        sampleId: sample.id,
+        sampleHash,
+        criteriaHash: geval.criteriaHash,
+        model: params.model,
+        seed: params.seed,
+      }
       const { should, description } = shouldEvaluate({ sample, geval })
       if (!should) {
         yield {
+          ...base,
           status: params.allowSkip ? 'skipped' : 'error',
-          sampleId: sample.id,
           description: description ?? '',
         }
         continue
@@ -41,16 +68,16 @@ export async function* evaluateSamples(params: {
           signal: params.signal,
         })
         yield {
+          ...base,
           status: 'success',
-          sampleId: sample.id,
           score: verdict.score,
           reason: verdict.reason,
         }
       } catch (error) {
         if (params.signal?.aborted) return
         yield {
+          ...base,
           status: 'error',
-          sampleId: sample.id,
           description: error instanceof Error ? error.message : String(error),
         }
       }

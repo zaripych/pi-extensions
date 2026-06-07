@@ -177,6 +177,12 @@ describe.skipIf(!process.env.E2E)('evaluate CLI against real models', () => {
           resultRows: [
             {
               status: 'success',
+              name: 'positive_sentiment',
+              sampleId: expect.any(String),
+              sampleHash: expect.any(String),
+              criteriaHash: expect.any(String),
+              model,
+              seed: 0,
               score: expect.any(Number),
               reason: expect.stringMatching(/.+/),
             },

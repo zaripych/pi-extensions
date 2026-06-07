@@ -1,5 +1,6 @@
 import { parse } from 'yaml'
 import { z } from 'zod'
+import { hashContent } from './hashContent'
 
 const scoreRangeSchema = z.enum(['binary', 'triple'])
 
@@ -15,10 +16,11 @@ const frontmatterSchema = z.object({
 })
 
 export type Criteria = {
-  name?: string
+  name: string
   scoreRange: z.infer<typeof scoreRangeSchema>
   fields: string[]
   body: string
+  criteriaHash: string
 }
 
 const frontmatterPattern = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/
@@ -41,9 +43,10 @@ export function parseCriteria(params: {
     )
   }
   return {
-    name: parsed.data.name,
+    name: parsed.data.name ?? params.fileName,
     scoreRange: parsed.data['score-range'],
     fields: (parsed.data.fields ?? []).map((field) => field.name),
     body: body ?? '',
+    criteriaHash: hashContent(params.source),
   }
 }

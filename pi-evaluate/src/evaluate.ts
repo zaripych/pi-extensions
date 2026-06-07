@@ -93,6 +93,8 @@ export async function evaluate(
     gevals,
     singleShotRequest,
     allowSkip: params.allowSkip ?? false,
+    model: params.model,
+    seed: 0,
     signal: params.signal,
   })
 

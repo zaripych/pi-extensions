@@ -129,7 +129,7 @@ Make the full `N×M matrix` visible in output and give every row a stable sample
 
 Make scores, reasons, model identity, seed identity, and row shape reliable for downstream consumers.
 
-- When a calling system reads result rows from any supported source mode or matrix size, every row carries `status`, `name`, `sampleId`, `sample-hash`, `criteria-hash`, `model`, and `seed`; a `success` row additionally carries `score` and `reason` (the verdict), while a `skipped` or `error` row instead carries `description` (the cause) and no `score` or `reason`.
+- When a calling system reads result rows from any supported source mode or matrix size, every row carries `status`, `name`, `sampleId`, `sampleHash`, `criteriaHash`, `model`, and `seed`; a `success` row additionally carries `score` and `reason` (the verdict), while a `skipped` or `error` row instead carries `description` (the cause) and no `score` or `reason`.
 - When a criterion has no `name`, result rows use the criterion file name as `name`; when the criterion has a `name`, result rows use that value.
 - When a `binary` criterion is evaluated, the output `score` is the normalized score and is either `0` or `1`.
 - When a `triple` criterion is evaluated, the output `score` is the normalized score and is one of `0`, `0.5`, or `1`.
@@ -155,4 +155,4 @@ Make the command predictable in shell pipelines and during interrupted or repeat
 - When the operator supplies `--output <file>`, result rows are appended to that file instead of replacing existing rows.
 - When cells are produced during a run, each row (`success`, `skipped`, or `error`) is flushed to the output file as it is produced, so a later interruption — or a `--max-errors` stop — still leaves the already-flushed rows available to downstream consumers.
 - When the operator runs the CLI in a shell pipeline, the v1 result contract remains the output file rather than raw JSON on stdout.
-- When a calling system reads result rows, the `sample-hash` and `criteria-hash` values allow it to spot changed samples and criteria across runs.
+- When a calling system reads result rows, the `sampleHash` and `criteriaHash` values allow it to spot changed samples and criteria across runs.
