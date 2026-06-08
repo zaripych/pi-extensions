@@ -183,7 +183,7 @@ describe.skipIf(!process.env.E2E)('evaluate CLI against real models', () => {
               criteriaHash: expect.any(String),
               model,
               seed: 0,
-              score: expect.any(Number),
+              normalizedScore: expect.any(Number),
               reason: expect.stringMatching(/.+/),
             },
           ],

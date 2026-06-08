@@ -20,6 +20,13 @@ type RunEvaluateParams = {
   signal?: AbortSignal
 }
 
+type WriteTempFileParams =
+  | string
+  | {
+      content?: string
+      suffix?: string
+    }
+
 const resultRowSchema = z.unknown()
 
 async function writeCriteria(params: {
@@ -142,8 +149,10 @@ export const setupEvaluate = configureHarnesses(
       )
     }
 
-    async function writeTempFile(content = ''): Promise<string> {
-      const path = join(tempDir, `temp-${faker.string.alphanumeric(8)}`)
+    async function writeTempFile(params: WriteTempFileParams = ''): Promise<string> {
+      const content = typeof params === 'string' ? params : (params.content ?? '')
+      const suffix = typeof params === 'string' ? '' : (params.suffix ?? '')
+      const path = join(tempDir, `temp-${faker.string.alphanumeric(8)}${suffix}`)
       await writeFile(path, content)
       return path
     }
@@ -189,6 +198,7 @@ export const setupEvaluate = configureHarnesses(
       ...deps,
       cacheDir,
       readCacheEntries,
+      readResultRows,
       overwriteCacheEntries,
       writeTempFile,
       evaluate: withDeps(evaluate, deps),

@@ -7,7 +7,7 @@ async function main(): Promise<void> {
   const argv = await yargs(hideBin(process.argv))
     .scriptName('evaluate')
     .usage(
-      '$0 --model <provider/id> --criteria <file> (--input-text|--input-jsonl) <file> [--output <file>]'
+      '$0 --model <provider/id> --criteria <file-glob> (--input-text <file-glob>|--input-jsonl <file-glob>) [--output <file>]'
     )
     .option('model', {
       type: 'string',
@@ -21,11 +21,11 @@ async function main(): Promise<void> {
     })
     .option('input-text', {
       type: 'string',
-      describe: 'Path of a file read as one text sample',
+      describe: 'Path or glob of text file(s), each read as one text sample',
     })
     .option('input-jsonl', {
       type: 'string',
-      describe: 'Path of a file read as one JSON object per line',
+      describe: 'Path or glob of JSONL file(s), each line read as one JSON object sample',
     })
     .option('output', {
       type: 'string',

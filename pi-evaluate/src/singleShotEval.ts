@@ -20,7 +20,7 @@ function buildVerdictSchema(scoreRange: Criteria['scoreRange']) {
   })
 }
 
-export type Verdict = { score: number; reason: string }
+export type Verdict = { normalizedScore: number; reason: string }
 
 function describeScoreRange(scoreRange: Criteria['scoreRange']) {
   switch (scoreRange) {
@@ -41,13 +41,15 @@ function buildPrompt(params: {
       ? params.sample.text
       : JSON.stringify(params.sample.record, null, 2)
   return [
-    'You are an evaluator. Apply the following criteria to the sample.',
+    'You are an evaluator. Judge <input> using <criteria>.',
     '',
-    '## Criteria',
+    '<criteria>',
     params.criteria,
+    '</criteria>',
     '',
-    '## Sample',
+    '<input>',
     renderedSample,
+    '</input>',
     '',
     'Return your verdict as a JSON object with a numeric "score" and a "reason".',
     describeScoreRange(params.scoreRange),
@@ -73,7 +75,7 @@ export async function singleShotEval(params: {
     signal: params.signal,
   })
   return {
-    score: verdict.score / maxRawScoreByRange[params.scoreRange],
+    normalizedScore: verdict.score / maxRawScoreByRange[params.scoreRange],
     reason: verdict.reason,
   }
 }

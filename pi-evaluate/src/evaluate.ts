@@ -2,6 +2,7 @@ import { glob, open, readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { createCliRequestOutput } from './createCliRequestOutput'
+import type { Sample } from './evaluateSamples'
 import { evaluateSamples } from './evaluateSamples'
 import { findRepoRoot } from './findRepoRoot'
 import { parseCriteria } from './parseCriteria'
@@ -46,6 +47,30 @@ function chooseInputSource(params: {
 
 const dryRunRequest: SingleShotRequest = async ({ schema }) =>
   schema.parse({ score: 0, reason: 'dry-run' })
+
+async function resolveInputSources(inputSource: InputSource): Promise<InputSource[]> {
+  const inputPaths = (await Array.fromAsync(glob(inputSource.path))).sort()
+  if (inputPaths.length === 0) {
+    const option = inputSource.type === 'text' ? '--input-text' : '--input-jsonl'
+    throw new Error(
+      `No input ${inputSource.type} files matched ${option} "${inputSource.path}".`
+    )
+  }
+  return inputPaths.map((path) => ({ type: inputSource.type, path }))
+}
+
+async function* readInputSamples(
+  inputSources: InputSource[]
+): AsyncGenerator<Sample> {
+  for (const inputSource of inputSources) {
+    await using inputHandle = await open(inputSource.path, 'r')
+    yield* readSamples({
+      type: inputSource.type,
+      path: inputSource.path,
+      stream: inputHandle.createReadStream(),
+    })
+  }
+}
 
 export async function evaluate(
   params: {
@@ -92,14 +117,10 @@ export async function evaluate(
         model: params.model,
       })
 
-  await using inputHandle = await open(inputSource.path, 'r')
+  const inputSources = await resolveInputSources(inputSource)
 
   const rows = evaluateSamples({
-    samples: readSamples({
-      type: inputSource.type,
-      path: inputSource.path,
-      stream: inputHandle.createReadStream(),
-    }),
+    samples: readInputSamples(inputSources),
     gevals,
     singleShotRequest,
     allowSkip: params.allowSkip ?? false,
@@ -118,7 +139,7 @@ export async function evaluate(
   }
 
   const errorThreshold = Math.max(params.maxErrors ?? 0, 1)
-  await using outputHandle = await open(params.output, 'a')
+  await using outputHandle = await open(params.output, 'w')
   let stoppedForErrors = false
   await pipeline(async function* () {
     for await (const row of rows) {

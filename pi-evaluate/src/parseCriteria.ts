@@ -1,3 +1,4 @@
+import { extname } from 'node:path'
 import { parse } from 'yaml'
 import { z } from 'zod'
 import { shortHash } from './shortHash'
@@ -42,8 +43,12 @@ export function parseCriteria(params: {
       `Criteria "${params.fileName}" has an invalid score-range: it must be "binary" or "triple".`
     )
   }
+  const extension = extname(params.fileName)
+  const defaultName = extension.length > 0
+    ? params.fileName.slice(0, -extension.length)
+    : params.fileName
   return {
-    name: parsed.data.name ?? params.fileName,
+    name: parsed.data.name ?? defaultName,
     scoreRange: parsed.data['score-range'],
     fields: (parsed.data.fields ?? []).map((field) => field.name),
     body: body ?? '',
