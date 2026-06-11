@@ -20,3 +20,17 @@ git subtree pull --prefix=pi-web-fetch https://github.com/georgebashi/pi-web-fet
 ```bash
 git subtree add --prefix=<dir> <repo-url> <branch> --squash
 ```
+
+## Subrepos
+
+Managed with [git-subrepo](https://github.com/ingydotnet/git-subrepo).
+
+| Path          | Upstream                                      |
+| ------------- | --------------------------------------------- |
+| `foundation/` | https://github.com/zaripych/foundation (main) |
+
+### Pull updates
+
+```bash
+git subrepo pull foundation
+```
