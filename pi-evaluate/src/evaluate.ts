@@ -39,8 +39,15 @@ async function resolvePaths(params: {
   patterns: GlobPatterns
   ignore?: string[]
 }): Promise<string[]> {
-  const matches = await fastGlob(params.patterns, { ignore: params.ignore })
-  return matches.sort()
+  const entries = await fastGlob(params.patterns, {
+    ignore: params.ignore,
+    onlyFiles: false,
+    objectMode: true,
+  })
+  return entries
+    .filter((entry) => !entry.dirent.isDirectory())
+    .map((entry) => entry.path)
+    .sort()
 }
 
 function chooseInputSource(params: {

@@ -110,6 +110,42 @@ describe('evaluate CLI', () => {
     })
   })
 
+  it('reads every sample from a process-substituted --input-jsonl', async () => {
+    await using harness = await setup()
+    const {
+      runEvaluateShell,
+      criteriaArgs,
+      outputArgs,
+      evaluateCommand,
+      writeTempFile,
+    } = harness
+
+    const criteriaPath = (await criteriaArgs(markdown`
+      ---
+      score-range: binary
+      ---
+
+      Score whether the answer is helpful.
+    `)).at(1)
+    const dataPath = await writeTempFile({
+      name: 'records.jsonl',
+      content: `${JSON.stringify({ answer: 'first' })}\n${JSON.stringify({ answer: 'second' })}\n`,
+    })
+
+    const result = await runEvaluateShell({
+      command: `${evaluateCommand} --model test/model --dry-run --criteria '${criteriaPath}' --input-jsonl <(cat '${dataPath}') ${outputArgs().join(' ')}`,
+    })
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        code: 0,
+        stdout: expect.stringContaining(
+          'success-eligible: 2, skipped: 0, error: 0'
+        ),
+      })
+    )
+  })
+
   it('aborts with a clear error and no result row when criteria set an unsupported score-range', async () => {
     await using harness = await setup()
     const { runEvaluateCli, criteriaArgs, inputArgs, outputArgs } = harness

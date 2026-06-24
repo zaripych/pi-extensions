@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { exec, execFile } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -9,8 +9,10 @@ import { configureHarnesses } from 'foundation/testing/harness/configureHarnesse
 import { z } from 'zod'
 
 const execFileAsync = promisify(execFile)
+const execAsync = promisify(exec)
 const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const binPath = join(packageDir, 'bin', 'evaluate.ts')
+const evaluateCommand = `'${process.execPath}' --import tsx '${binPath}'`
 const execFileErrorSchema = z.object({
   code: z.union([z.number(), z.string()]).optional(),
   stderr: z.union([z.string(), z.instanceof(Buffer)]),
@@ -123,6 +125,43 @@ export const setupE2e = configureHarnesses(async () => {
     return writeInput({ tempDir, id, input })
   }
 
+  async function writeTempFile(params: { name: string; content: string }): Promise<string> {
+    const filePath = join(tempDir, params.name)
+    await writeFile(filePath, params.content)
+    return filePath
+  }
+
+  async function runEvaluateShell(params: { command: string }): Promise<{
+    code: number | string | undefined
+    stderr: string
+    stdout: string
+    resultRows: unknown[]
+  }> {
+    try {
+      const result = await execAsync(params.command, {
+        cwd: packageDir,
+        shell: 'bash',
+      })
+      return {
+        code: 0,
+        stderr: result.stderr.toString(),
+        stdout: result.stdout.toString(),
+        resultRows: await readJsonlRows(outputPath),
+      }
+    } catch (error) {
+      const parsedError = execFileErrorSchema.safeParse(error)
+      if (!parsedError.success) {
+        throw error
+      }
+      return {
+        code: parsedError.data.code,
+        stderr: parsedError.data.stderr.toString(),
+        stdout: parsedError.data.stdout.toString(),
+        resultRows: await readJsonlRows(outputPath),
+      }
+    }
+  }
+
   async function criteriaArgs(criteria: string): Promise<string[]> {
     const criteriaPath = join(tempDir, `criteria-${id}.md`)
     await writeFile(criteriaPath, criteria)
@@ -135,9 +174,13 @@ export const setupE2e = configureHarnesses(async () => {
 
   return {
     runEvaluateCli,
+    runEvaluateShell,
     inputArgs,
     criteriaArgs,
     outputArgs,
+    outputPath,
+    evaluateCommand,
+    writeTempFile,
     async [Symbol.asyncDispose]() {
       await rm(tempDir, { recursive: true, force: true })
     },
