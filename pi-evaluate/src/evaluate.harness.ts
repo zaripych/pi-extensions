@@ -1,6 +1,6 @@
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { faker } from '@faker-js/faker'
 import { configureDependencies } from 'foundation/testing/harness/configureDependencies'
 import { configureHarnesses } from 'foundation/testing/harness/configureHarnesses'
@@ -24,7 +24,7 @@ type WriteTempFileParams =
   | string
   | {
       content?: string
-      suffix?: string
+      path?: string
     }
 
 const resultRowSchema = z.unknown()
@@ -151,10 +151,14 @@ export const setupEvaluate = configureHarnesses(
 
     async function writeTempFile(params: WriteTempFileParams = ''): Promise<string> {
       const content = typeof params === 'string' ? params : (params.content ?? '')
-      const suffix = typeof params === 'string' ? '' : (params.suffix ?? '')
-      const path = join(tempDir, `temp-${faker.string.alphanumeric(8)}${suffix}`)
-      await writeFile(path, content)
-      return path
+      const relativePath =
+        typeof params === 'string' || params.path === undefined
+          ? `temp-${faker.string.alphanumeric(8)}`
+          : params.path
+      const filePath = join(tempDir, relativePath)
+      await mkdir(dirname(filePath), { recursive: true })
+      await writeFile(filePath, content)
+      return filePath
     }
 
     async function runEvaluate(

@@ -55,15 +55,15 @@ describe('evaluate', () => {
 
         Score whether the answer is helpful.
       `,
-      suffix: '-criteria.md',
+      path: 'criteria.md',
     })
     const inputPath = await writeTempFile({
       content: `${JSON.stringify({ answer: 'present' })}\n`,
-      suffix: '-input.jsonl',
+      path: 'input.jsonl',
     })
     const outputPath = await writeTempFile({
       content: `${JSON.stringify({ status: 'stale' })}\n`,
-      suffix: '-results.jsonl',
+      path: 'results.jsonl',
     })
 
     await evaluate({
@@ -378,14 +378,14 @@ describe('evaluate', () => {
       content: [{ answer: 'first' }, { answer: 'second' }]
         .map((sample) => `${JSON.stringify(sample)}\n`)
         .join(''),
-      suffix: '-input.jsonl',
+      path: 'jsonl-glob/first.jsonl',
     })
     const secondInputPath = await writeTempFile({
       content: `${JSON.stringify({ answer: 'third' })}\n`,
-      suffix: '-input.jsonl',
+      path: 'jsonl-glob/second.jsonl',
     })
     const inputDir = dirname(firstInputPath)
-    const outputPath = await writeTempFile({ suffix: '-results.jsonl' })
+    const outputPath = await writeTempFile({ path: 'results.jsonl' })
     const expectedSampleIds = [firstInputPath, secondInputPath]
       .sort()
       .flatMap((path) =>
@@ -404,9 +404,9 @@ describe('evaluate', () => {
 
           Score whether the answer is helpful.
         `,
-        suffix: '-criteria.md',
+        path: 'criteria.md',
       }),
-      inputJsonl: join(inputDir, '*-input.jsonl'),
+      inputJsonl: join(inputDir, '*.jsonl'),
       output: outputPath,
     })
 
@@ -450,11 +450,11 @@ describe('evaluate', () => {
     const { evaluate, writeTempFile } = harness
     const firstInputPath = await writeTempFile({
       content: 'first text',
-      suffix: '-input.md',
+      path: 'text-glob/first.md',
     })
-    await writeTempFile({ content: 'second text', suffix: '-input.md' })
+    await writeTempFile({ content: 'second text', path: 'text-glob/second.md' })
     const inputDir = dirname(firstInputPath)
-    const outputPath = await writeTempFile({ suffix: '-results.jsonl' })
+    const outputPath = await writeTempFile({ path: 'results.jsonl' })
 
     const summary = await evaluate({
       model: 'test/model',
@@ -466,9 +466,9 @@ describe('evaluate', () => {
 
           Score whether the text expresses a positive sentiment.
         `,
-        suffix: '-criteria.md',
+        path: 'criteria.md',
       }),
-      inputText: join(inputDir, '*-input.md'),
+      inputText: join(inputDir, '*.md'),
       output: outputPath,
     })
 
@@ -1024,5 +1024,207 @@ describe('evaluate', () => {
       expect.objectContaining({ status: 'success', normalizedScore: 1, reason: 'helpful' }),
       expect.objectContaining({ status: 'success', normalizedScore: 1, reason: 'helpful' }),
     ])
+  })
+
+  describe('glob resolution', () => {
+    it('ignores AGENTS.md, CLAUDE.md, and README.md when --criteria matches them', async () => {
+      await using harness = await setup()
+      const { evaluate, writeTempFile, readResultRows } = harness
+      const helpfulPath = await writeTempFile({
+        content: markdown`
+          ---
+          score-range: binary
+          ---
+        
+          Score whether the answer is helpful.
+        `,
+        path: 'criteria-glob/helpful.md',
+      })
+      await Promise.all([
+        writeTempFile({ content: 'no frontmatter', path: 'criteria-glob/AGENTS.md' }),
+        writeTempFile({ content: 'no frontmatter', path: 'criteria-glob/CLAUDE.md' }),
+        writeTempFile({ content: 'no frontmatter', path: 'criteria-glob/README.md' }),
+      ])
+      const inputPath = await writeTempFile({
+        content: `${JSON.stringify({ answer: 'present' })}\n`,
+        path: 'input.jsonl',
+      })
+      const outputPath = await writeTempFile({ path: 'results.jsonl' })
+
+      const summary = await evaluate({
+        model: 'test/model',
+        criteria: join(dirname(helpfulPath), '*.md'),
+        inputJsonl: inputPath,
+        output: outputPath,
+      })
+
+      expect(summary).toEqual({
+        counts: { success: 1, skipped: 0, error: 0 },
+        outcome: 'completed',
+      })
+      expect(await readResultRows(outputPath)).toEqual([
+        expect.objectContaining({ status: 'success', name: 'helpful' }),
+      ])
+    })
+
+    it('excludes a named criteria file via a negation pattern', async () => {
+      await using harness = await setup()
+      const { evaluate, writeTempFile, readResultRows } = harness
+      const helpfulPath = await writeTempFile({
+        content: markdown`
+          ---
+          score-range: binary
+          ---
+        
+          Score whether the answer is helpful.
+        `,
+        path: 'criteria-neg/helpful.md',
+      })
+      const draftPath = await writeTempFile({
+        content: markdown`
+          ---
+          score-range: binary
+          ---
+        
+          Score whether the answer is helpful.
+        `,
+        path: 'criteria-neg/draft.md',
+      })
+      const inputPath = await writeTempFile({
+        content: `${JSON.stringify({ answer: 'present' })}\n`,
+        path: 'input.jsonl',
+      })
+      const outputPath = await writeTempFile({ path: 'results.jsonl' })
+
+      const summary = await evaluate({
+        model: 'test/model',
+        criteria: [join(dirname(helpfulPath), '*.md'), `!${draftPath}`],
+        inputJsonl: inputPath,
+        output: outputPath,
+      })
+
+      expect(summary.counts).toEqual({ success: 1, skipped: 0, error: 0 })
+      expect(await readResultRows(outputPath)).toEqual([
+        expect.objectContaining({ name: 'helpful' }),
+      ])
+    })
+
+    it('runs every file matched by repeated --criteria patterns', async () => {
+      await using harness = await setup()
+      const { evaluate, writeTempFile, readResultRows } = harness
+      const helpfulPath = await writeTempFile({
+        content: markdown`
+          ---
+          score-range: binary
+          ---
+        
+          Score whether the answer is helpful.
+        `,
+        path: 'criteria-multi/helpful.md',
+      })
+      const faithfulPath = await writeTempFile({
+        content: markdown`
+          ---
+          score-range: binary
+          ---
+        
+          Score whether the answer is helpful.
+        `,
+        path: 'criteria-multi/faithful.md',
+      })
+      const inputPath = await writeTempFile({
+        content: `${JSON.stringify({ answer: 'present' })}\n`,
+        path: 'input.jsonl',
+      })
+      const outputPath = await writeTempFile({ path: 'results.jsonl' })
+
+      const summary = await evaluate({
+        model: 'test/model',
+        criteria: [helpfulPath, faithfulPath],
+        inputJsonl: inputPath,
+        output: outputPath,
+      })
+
+      expect(summary.counts).toEqual({ success: 2, skipped: 0, error: 0 })
+      expect(await readResultRows(outputPath)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'helpful' }),
+          expect.objectContaining({ name: 'faithful' }),
+        ])
+      )
+    })
+
+    it('excludes a named --input-text file via a negation pattern', async () => {
+      await using harness = await setup()
+      const { evaluate, writeTempFile, readResultRows } = harness
+      const keepPath = await writeTempFile({
+        content: 'keep this text',
+        path: 'input-neg/keep.md',
+      })
+      const skipPath = await writeTempFile({
+        content: 'skip this text',
+        path: 'input-neg/skip.md',
+      })
+      const outputPath = await writeTempFile({ path: 'results.jsonl' })
+
+      const summary = await evaluate({
+        model: 'test/model',
+        criteria: await writeTempFile({
+          content: markdown`
+            ---
+            score-range: binary
+            ---
+          
+            Score whether the answer is helpful.
+          `,
+          path: 'criteria.md',
+        }),
+        inputText: [join(dirname(keepPath), '*.md'), `!${skipPath}`],
+        output: outputPath,
+      })
+
+      expect(summary.counts).toEqual({ success: 1, skipped: 0, error: 0 })
+      expect(await readResultRows(outputPath)).toEqual([
+        expect.objectContaining({ sampleId: keepPath }),
+      ])
+    })
+
+    it('reads every file matched by repeated --input-text patterns', async () => {
+      await using harness = await setup()
+      const { evaluate, writeTempFile, readResultRows } = harness
+      const firstPath = await writeTempFile({
+        content: 'first text',
+        path: 'input-multi/first.md',
+      })
+      const secondPath = await writeTempFile({
+        content: 'second text',
+        path: 'input-multi/second.md',
+      })
+      const outputPath = await writeTempFile({ path: 'results.jsonl' })
+
+      const summary = await evaluate({
+        model: 'test/model',
+        criteria: await writeTempFile({
+          content: markdown`
+            ---
+            score-range: binary
+            ---
+          
+            Score whether the answer is helpful.
+          `,
+          path: 'criteria.md',
+        }),
+        inputText: [firstPath, secondPath],
+        output: outputPath,
+      })
+
+      expect(summary.counts).toEqual({ success: 2, skipped: 0, error: 0 })
+      expect(await readResultRows(outputPath)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ sampleId: firstPath }),
+          expect.objectContaining({ sampleId: secondPath }),
+        ])
+      )
+    })
   })
 })

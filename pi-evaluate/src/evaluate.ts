@@ -1,6 +1,7 @@
-import { glob, open, readFile } from 'node:fs/promises'
+import { open, readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
+import fastGlob from 'fast-glob'
 import { createCliRequestOutput } from './createCliRequestOutput'
 import type { Sample } from './evaluateSamples'
 import { evaluateSamples } from './evaluateSamples'
@@ -21,24 +22,41 @@ export type EvaluateSummary = {
   outcome: 'completed' | 'failed' | 'aborted'
 }
 
-type InputSource = { type: 'text' | 'jsonl'; path: string }
+type GlobPatterns = string | string[]
+
+type InputSource = { type: 'text' | 'jsonl'; patterns: GlobPatterns }
+
+const criteriaIgnore = ['**/AGENTS.md', '**/CLAUDE.md', '**/README.md']
+
+function hasPatterns(patterns: GlobPatterns | undefined): boolean {
+  if (Array.isArray(patterns)) {
+    return patterns.some((pattern) => pattern.length > 0)
+  }
+  return typeof patterns === 'string' && patterns.length > 0
+}
+
+async function resolvePaths(params: {
+  patterns: GlobPatterns
+  ignore?: string[]
+}): Promise<string[]> {
+  const matches = await fastGlob(params.patterns, { ignore: params.ignore })
+  return matches.sort()
+}
 
 function chooseInputSource(params: {
-  inputText: string | undefined
-  inputJsonl: string | undefined
+  inputText: GlobPatterns | undefined
+  inputJsonl: GlobPatterns | undefined
 }): InputSource {
-  const hasInputText =
-    typeof params.inputText === 'string' && params.inputText.length > 0
-  const hasInputJsonl =
-    typeof params.inputJsonl === 'string' && params.inputJsonl.length > 0
+  const hasInputText = hasPatterns(params.inputText)
+  const hasInputJsonl = hasPatterns(params.inputJsonl)
   if (hasInputText && hasInputJsonl) {
     throw new Error('Pass only one of --input-text or --input-jsonl, not both.')
   }
-  if (hasInputText && typeof params.inputText === 'string') {
-    return { type: 'text', path: params.inputText }
+  if (hasInputText && params.inputText !== undefined) {
+    return { type: 'text', patterns: params.inputText }
   }
-  if (hasInputJsonl && typeof params.inputJsonl === 'string') {
-    return { type: 'jsonl', path: params.inputJsonl }
+  if (hasInputJsonl && params.inputJsonl !== undefined) {
+    return { type: 'jsonl', patterns: params.inputJsonl }
   }
   throw new Error(
     '--input-text or --input-jsonl is required: pass a sample file (use <(cat file) for process substitution).'
@@ -48,19 +66,25 @@ function chooseInputSource(params: {
 const dryRunRequest: SingleShotRequest = async ({ schema }) =>
   schema.parse({ score: 0, reason: 'dry-run' })
 
-async function resolveInputSources(inputSource: InputSource): Promise<InputSource[]> {
-  const inputPaths = (await Array.fromAsync(glob(inputSource.path))).sort()
+async function resolveInputSources(
+  inputSource: InputSource
+): Promise<{ type: 'text' | 'jsonl'; path: string }[]> {
+  const inputPaths = await resolvePaths({ patterns: inputSource.patterns })
   if (inputPaths.length === 0) {
     const option = inputSource.type === 'text' ? '--input-text' : '--input-jsonl'
     throw new Error(
-      `No input ${inputSource.type} files matched ${option} "${inputSource.path}".`
+      `No input ${inputSource.type} files matched ${option} "${describePatterns(inputSource.patterns)}".`
     )
   }
   return inputPaths.map((path) => ({ type: inputSource.type, path }))
 }
 
+function describePatterns(patterns: GlobPatterns): string {
+  return Array.isArray(patterns) ? patterns.join(' ') : patterns
+}
+
 async function* readInputSamples(
-  inputSources: InputSource[]
+  inputSources: { type: 'text' | 'jsonl'; path: string }[]
 ): AsyncGenerator<Sample> {
   for (const inputSource of inputSources) {
     await using inputHandle = await open(inputSource.path, 'r')
@@ -75,9 +99,9 @@ async function* readInputSamples(
 export async function evaluate(
   params: {
     model: string
-    criteria: string
-    inputText?: string
-    inputJsonl?: string
+    criteria: GlobPatterns
+    inputText?: GlobPatterns
+    inputJsonl?: GlobPatterns
     output: string
     allowSkip?: boolean
     maxErrors?: number
@@ -91,10 +115,13 @@ export async function evaluate(
     inputJsonl: params.inputJsonl,
   })
 
-  const gevalPaths = (await Array.fromAsync(glob(params.criteria))).sort()
+  const gevalPaths = await resolvePaths({
+    patterns: params.criteria,
+    ignore: criteriaIgnore,
+  })
   if (gevalPaths.length === 0) {
     throw new Error(
-      `No criteria files matched --criteria "${params.criteria}".`
+      `No criteria files matched --criteria "${describePatterns(params.criteria)}".`
     )
   }
   const gevals = await Promise.all(

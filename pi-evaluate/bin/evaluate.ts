@@ -16,16 +16,22 @@ async function main(): Promise<void> {
     })
     .option('criteria', {
       type: 'string',
+      array: true,
       demandOption: true,
-      describe: 'Path or glob of the G-Eval criteria file(s)',
+      describe:
+        "Path or glob of the G-Eval criteria file(s). Repeat to pass several patterns; prefix a pattern with '!' to exclude. AGENTS.md, CLAUDE.md and README.md are ignored by default. e.g. --criteria './gevals/*.md' --criteria '!./gevals/draft-*.md'",
     })
     .option('input-text', {
       type: 'string',
-      describe: 'Path or glob of text file(s), each read as one text sample',
+      array: true,
+      describe:
+        "Path or glob of text file(s), each read as one text sample. Repeat to pass several patterns; prefix a pattern with '!' to exclude. e.g. --input-text './samples/*.md' --input-text '!./samples/skip.md'",
     })
     .option('input-jsonl', {
       type: 'string',
-      describe: 'Path or glob of JSONL file(s), each line read as one JSON object sample',
+      array: true,
+      describe:
+        "Path or glob of JSONL file(s), each line read as one JSON object sample. Repeat to pass several patterns; prefix a pattern with '!' to exclude.",
     })
     .option('output', {
       type: 'string',
