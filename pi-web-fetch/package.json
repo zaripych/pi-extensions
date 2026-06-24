@@ -34,8 +34,8 @@
     ]
   },
   "dependencies": {
-    "picomatch": "^4.0.3",
-    "puppeteer": "^24.0.0"
+    "picomatch": "4.0.4",
+    "puppeteer": "25.2.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
@@ -43,7 +43,7 @@
     "@sinclair/typebox": "*"
   },
   "devDependencies": {
-    "@types/picomatch": "^4.0.2",
-    "vitest": "^4.1.7"
+    "@types/picomatch": "4.0.3",
+    "vitest": "4.1.9"
   }
 }

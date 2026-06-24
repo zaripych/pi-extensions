@@ -1,5 +1,7 @@
 packages:
   - ./*
+overrides:
+  vite: 8.1.0
 allowBuilds:
   '@google/genai': true
   esbuild: true
