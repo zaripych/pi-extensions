@@ -1,4 +1,9 @@
-import { type Api, completeSimple, type Model } from '@earendil-works/pi-ai'
+import { type Api, type Model, type ProviderStreams } from '@earendil-works/pi-ai'
+import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messages.lazy'
+import { azureOpenAIResponsesApi } from '@earendil-works/pi-ai/api/azure-openai-responses.lazy'
+import { openAICodexResponsesApi } from '@earendil-works/pi-ai/api/openai-codex-responses.lazy'
+import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
+import { openAIResponsesApi } from '@earendil-works/pi-ai/api/openai-responses.lazy'
 import type { ModelRegistry } from '@earendil-works/pi-coding-agent'
 import { z } from 'zod'
 
@@ -62,6 +67,25 @@ function injectStructuredOutput(params: {
   }
 }
 
+function resolveApi(model: Model<Api>): ProviderStreams {
+  switch (model.api) {
+    case 'anthropic-messages':
+      return anthropicMessagesApi()
+    case 'openai-responses':
+      return openAIResponsesApi()
+    case 'azure-openai-responses':
+      return azureOpenAIResponsesApi()
+    case 'openai-codex-responses':
+      return openAICodexResponsesApi()
+    case 'openai-completions':
+      return openAICompletionsApi()
+    default:
+      throw new Error(
+        `Structured output is not supported for the selected model API "${model.api}".`
+      )
+  }
+}
+
 function extractText(content: { type: string }[]): string {
   return content
     .filter(
@@ -81,7 +105,7 @@ export function createSingleShotRequest(params: {
     if (!auth.ok) {
       throw new Error(`Could not resolve model credentials: ${auth.error}`)
     }
-    const message = await completeSimple(
+    const stream = resolveApi(params.model).streamSimple(
       params.model,
       {
         messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
@@ -94,6 +118,7 @@ export function createSingleShotRequest(params: {
           injectStructuredOutput({ payload, model: params.model, schema }),
       }
     )
+    const message = await stream.result()
     if (message.stopReason === 'error' || message.stopReason === 'aborted') {
       throw new Error(
         `Model request failed (${message.stopReason}): ${message.errorMessage ?? 'unknown error'}`
