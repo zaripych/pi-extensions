@@ -740,6 +740,7 @@ describe('evaluate', () => {
         criteriaHash: expect.any(String),
         model: 'test/model',
         seed: 0,
+        rubricScore: 1,
         normalizedScore: 1,
         reason: 'helpful',
       },
@@ -829,8 +830,8 @@ describe('evaluate', () => {
     })
 
     expect(result.rows).toEqual([
-      expect.objectContaining({ normalizedScore: 0 }),
-      expect.objectContaining({ normalizedScore: 0 }),
+      expect.objectContaining({ rubricScore: 0, normalizedScore: 0 }),
+      expect.objectContaining({ rubricScore: 0, normalizedScore: 0 }),
     ])
   })
 
@@ -855,9 +856,9 @@ describe('evaluate', () => {
     })
 
     expect(result.rows).toEqual([
-      expect.objectContaining({ normalizedScore: 0 }),
-      expect.objectContaining({ normalizedScore: 0.5 }),
-      expect.objectContaining({ normalizedScore: 1 }),
+      expect.objectContaining({ rubricScore: 0, normalizedScore: 0 }),
+      expect.objectContaining({ rubricScore: 1, normalizedScore: 0.5 }),
+      expect.objectContaining({ rubricScore: 2, normalizedScore: 1 }),
     ])
   })
 

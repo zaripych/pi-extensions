@@ -20,7 +20,11 @@ function buildVerdictSchema(scoreRange: Criteria['scoreRange']) {
   })
 }
 
-export type Verdict = { normalizedScore: number; reason: string }
+export type Verdict = {
+  rubricScore: number
+  normalizedScore: number
+  reason: string
+}
 
 function describeScoreRange(scoreRange: Criteria['scoreRange']) {
   switch (scoreRange) {
@@ -75,6 +79,7 @@ export async function singleShotEval(params: {
     signal: params.signal,
   })
   return {
+    rubricScore: verdict.score,
     normalizedScore: verdict.score / maxRawScoreByRange[params.scoreRange],
     reason: verdict.reason,
   }

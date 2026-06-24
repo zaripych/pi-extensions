@@ -18,7 +18,12 @@ type Base = {
 }
 
 export type ResultRow =
-  | (Base & { status: 'success'; normalizedScore: number; reason: string })
+  | (Base & {
+      status: 'success'
+      rubricScore: number
+      normalizedScore: number
+      reason: string
+    })
   | (Base & { status: 'skipped'; description: string })
   | (Base & { status: 'error'; description: string })
 
@@ -71,6 +76,7 @@ export async function* evaluateSamples(params: {
         yield {
           ...base,
           status: 'success',
+          rubricScore: verdict.rubricScore,
           normalizedScore: verdict.normalizedScore,
           reason: verdict.reason,
         }
