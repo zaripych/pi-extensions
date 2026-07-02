@@ -7,7 +7,7 @@ async function main(): Promise<void> {
   const argv = await yargs(hideBin(process.argv))
     .scriptName('evaluate')
     .usage(
-      '$0 --model <provider/id> --criteria <file-glob> (--input-text <file-glob>|--input-jsonl <file-glob>) [--output <file>]'
+      '$0 --model <provider/id> --criteria <file-glob> (--input-text <file-glob>|--input-jsonl <file-glob>|--input-text-nul <file-glob>) [--output <file>]'
     )
     .option('model', {
       type: 'string',
@@ -27,11 +27,18 @@ async function main(): Promise<void> {
       describe:
         "Path or glob of text file(s), each read as one text sample. Repeat to pass several patterns; prefix a pattern with '!' to exclude. e.g. --input-text './samples/*.md' --input-text '!./samples/skip.md'",
     })
+
     .option('input-jsonl', {
       type: 'string',
       array: true,
       describe:
-        "Path or glob of JSONL file(s), each line read as one JSON object sample. Repeat to pass several patterns; prefix a pattern with '!' to exclude.",
+        "Path or glob of JSONL file(s), each line read as one JSON object sample. A record may carry a reserved sampleId key naming its result rows. Repeat to pass several patterns; prefix a pattern with '!' to exclude.",
+    })
+    .option('input-text-nul', {
+      type: 'string',
+      array: true,
+      describe:
+        "Path or glob of file(s) containing NUL-separated text samples; in each sample the first line is an optional id and the rest is the text. Works with process substitution, e.g. --input-text-nul <(collect.ts). Repeat to pass several patterns; prefix a pattern with '!' to exclude.",
     })
     .option('output', {
       type: 'string',
@@ -47,6 +54,12 @@ async function main(): Promise<void> {
       type: 'number',
       default: 0,
       describe: 'Stop the run once this many error rows are produced',
+    })
+    .option('seed', {
+      type: 'number',
+      default: 0,
+      describe:
+        'Threaded into the result cache key, never sent to the provider; change it to bypass cached verdicts and get a fresh judgment',
     })
     .option('dry-run', {
       type: 'boolean',
@@ -64,16 +77,18 @@ async function main(): Promise<void> {
     criteria: argv.criteria,
     inputText: argv.inputText,
     inputJsonl: argv.inputJsonl,
+    inputTextNul: argv.inputTextNul,
     output: argv.output,
     allowSkip: argv.allowSkip,
     maxErrors: argv.maxErrors,
+    seed: argv.seed,
     dryRun: argv.dryRun,
     signal: controller.signal,
   })
 
   if (argv.dryRun) {
     process.stdout.write(
-      `success-eligible: ${summary.counts.success}, skipped: ${summary.counts.skipped}, error: ${summary.counts.error}\n`
+      `success-eligible: ${summary.counts.success}, skipped: ${summary.counts.skipped}, error: ${summary.counts.error}, cache-hit: ${summary.cacheCounts.hit}, cache-miss: ${summary.cacheCounts.miss}\n`
     )
   }
 

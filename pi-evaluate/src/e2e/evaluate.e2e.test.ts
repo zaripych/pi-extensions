@@ -146,6 +146,40 @@ describe('evaluate CLI', () => {
     )
   })
 
+  it('accepts --seed and completes a dry run', async () => {
+    await using harness = await setup()
+    const { runEvaluateCli, criteriaArgs, inputArgs, outputArgs } = harness
+
+    const result = await runEvaluateCli({
+      args: [
+        '--model',
+        'test/model',
+        '--dry-run',
+        '--seed',
+        '7',
+        ...(await criteriaArgs(markdown`
+          ---
+          score-range: binary
+          ---
+
+          Score whether the answer is helpful.
+        `)),
+        ...(await inputArgs([{ answer: 'hello' }])),
+        ...outputArgs(),
+      ],
+    })
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        code: 0,
+        stderr: '',
+        stdout: expect.stringContaining(
+          'success-eligible: 1, skipped: 0, error: 0'
+        ),
+      })
+    )
+  })
+
   it('aborts with a clear error and no result row when criteria set an unsupported score-range', async () => {
     await using harness = await setup()
     const { runEvaluateCli, criteriaArgs, inputArgs, outputArgs } = harness

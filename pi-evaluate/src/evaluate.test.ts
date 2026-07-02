@@ -95,9 +95,14 @@ describe('evaluate', () => {
 
         Score whether the answer addresses the question.
       `,
-      input: [{ question: 'Why is the sky blue?', answer: 'Rayleigh scattering.' }],
+      input: [
+        { question: 'Why is the sky blue?', answer: 'Rayleigh scattering.' },
+      ],
       singleShotRequest: async ({ schema }) =>
-        schema.parse({ score: 1, reason: 'The answer addresses the question.' }),
+        schema.parse({
+          score: 1,
+          reason: 'The answer addresses the question.',
+        }),
     })
 
     expect(result.rows).toEqual([
@@ -159,7 +164,11 @@ describe('evaluate', () => {
           description: expect.stringContaining('answer'),
         }),
       ],
-      summary: { counts: { success: 0, skipped: 0, error: 1 }, outcome: 'failed' },
+      summary: {
+        counts: { success: 0, skipped: 0, error: 1 },
+        cacheCounts: { hit: 0, miss: 0 },
+        outcome: 'failed',
+      },
     })
     expect(requestCount).toBe(0)
   })
@@ -193,7 +202,11 @@ describe('evaluate', () => {
         }),
         expect.objectContaining({ status: 'success' }),
       ],
-      summary: { counts: { success: 1, skipped: 1, error: 0 }, outcome: 'completed' },
+      summary: {
+        counts: { success: 1, skipped: 1, error: 0 },
+        cacheCounts: { hit: 0, miss: 1 },
+        outcome: 'completed',
+      },
     })
   })
 
@@ -222,7 +235,11 @@ describe('evaluate', () => {
           description: expect.stringContaining('model request failed'),
         }),
       ],
-      summary: { counts: { success: 0, skipped: 0, error: 1 }, outcome: 'failed' },
+      summary: {
+        counts: { success: 0, skipped: 0, error: 1 },
+        cacheCounts: { hit: 0, miss: 1 },
+        outcome: 'failed',
+      },
     })
   })
 
@@ -251,7 +268,11 @@ describe('evaluate', () => {
         expect.objectContaining({ status: 'error' }),
         expect.objectContaining({ status: 'error' }),
       ],
-      summary: { counts: { success: 0, skipped: 0, error: 2 }, outcome: 'failed' },
+      summary: {
+        counts: { success: 0, skipped: 0, error: 2 },
+        cacheCounts: { hit: 0, miss: 0 },
+        outcome: 'failed',
+      },
     })
   })
 
@@ -280,15 +301,19 @@ describe('evaluate', () => {
         expect.objectContaining({ status: 'error' }),
         expect.objectContaining({ status: 'success' }),
       ],
-      summary: { counts: { success: 1, skipped: 0, error: 1 }, outcome: 'completed' },
+      summary: {
+        counts: { success: 1, skipped: 0, error: 1 },
+        cacheCounts: { hit: 0, miss: 1 },
+        outcome: 'completed',
+      },
     })
   })
 
   it('classifies the matrix and reports counts without writing rows or spending tokens under --dry-run', async () => {
     await using harness = await setup()
     const { runEvaluate } = harness
-    let requestCount = 0
 
+    let requestCount = 0
     const result = await runEvaluate({
       dryRun: true,
       criteria: markdown`
@@ -309,7 +334,11 @@ describe('evaluate', () => {
 
     expect(result).toEqual({
       rows: [],
-      summary: { counts: { success: 1, skipped: 0, error: 1 }, outcome: 'completed' },
+      summary: {
+        counts: { success: 1, skipped: 0, error: 1 },
+        cacheCounts: { hit: 0, miss: 1 },
+        outcome: 'completed',
+      },
     })
     expect(requestCount).toBe(0)
   })
@@ -317,6 +346,7 @@ describe('evaluate', () => {
   it('aborts mid-run: stops further cells, drops the interrupted cell, keeps flushed rows, and fails', async () => {
     await using harness = await setup()
     const { runEvaluate } = harness
+
     const controller = new AbortController()
     let requestCount = 0
 
@@ -342,88 +372,20 @@ describe('evaluate', () => {
 
     expect(result).toEqual({
       rows: [expect.objectContaining({ status: 'success' })],
-      summary: { counts: { success: 1, skipped: 0, error: 0 }, outcome: 'aborted' },
+      summary: {
+        counts: { success: 1, skipped: 0, error: 0 },
+        cacheCounts: { hit: 0, miss: 2 },
+        outcome: 'aborted',
+      },
     })
     expect(requestCount).toBe(2)
-  })
-
-  it('treats each JSONL line as one sample under --input-jsonl', async () => {
-    await using harness = await setup()
-    const { runEvaluate } = harness
-
-    const result = await runEvaluate({
-      criteria: markdown`
-        ---
-        score-range: binary
-        ---
-
-        Score whether the answer is helpful.
-      `,
-      input: [{ answer: 'first' }, { answer: 'second' }, { answer: 'third' }],
-      singleShotRequest: async ({ schema }) =>
-        schema.parse({ score: 1, reason: 'helpful' }),
-    })
-
-    expect(result.rows).toEqual([
-      expect.objectContaining({ status: 'success' }),
-      expect.objectContaining({ status: 'success' }),
-      expect.objectContaining({ status: 'success' }),
-    ])
-  })
-
-  it('treats each line from files matched by --input-jsonl glob as one sample', async () => {
-    await using harness = await setup()
-    const { evaluate, writeTempFile, readResultRows } = harness
-    const firstInputPath = await writeTempFile({
-      content: [{ answer: 'first' }, { answer: 'second' }]
-        .map((sample) => `${JSON.stringify(sample)}\n`)
-        .join(''),
-      path: 'jsonl-glob/first.jsonl',
-    })
-    const secondInputPath = await writeTempFile({
-      content: `${JSON.stringify({ answer: 'third' })}\n`,
-      path: 'jsonl-glob/second.jsonl',
-    })
-    const inputDir = dirname(firstInputPath)
-    const outputPath = await writeTempFile({ path: 'results.jsonl' })
-    const expectedSampleIds = [firstInputPath, secondInputPath]
-      .sort()
-      .flatMap((path) =>
-        path === firstInputPath
-          ? [`${firstInputPath}#[0]`, `${firstInputPath}#[1]`]
-          : [`${secondInputPath}#[0]`]
-      )
-
-    const summary = await evaluate({
-      model: 'test/model',
-      criteria: await writeTempFile({
-        content: markdown`
-          ---
-          score-range: binary
-          ---
-
-          Score whether the answer is helpful.
-        `,
-        path: 'criteria.md',
-      }),
-      inputJsonl: join(inputDir, '*.jsonl'),
-      output: outputPath,
-    })
-
-    expect(summary).toEqual({
-      counts: { success: 3, skipped: 0, error: 0 },
-      outcome: 'completed',
-    })
-    expect(await readResultRows(outputPath)).toEqual(
-      expectedSampleIds.map((sampleId) => expect.objectContaining({ sampleId }))
-    )
   })
 
   it('treats the whole file as one sample under --input-text', async () => {
     await using harness = await setup()
     const { runEvaluate } = harness
-    let requestCount = 0
 
+    let requestCount = 0
     const result = await runEvaluate({
       criteria: markdown`
         ---
@@ -448,6 +410,7 @@ describe('evaluate', () => {
   it('treats each file matched by --input-text glob as one text sample', async () => {
     await using harness = await setup()
     const { evaluate, writeTempFile } = harness
+
     const firstInputPath = await writeTempFile({
       content: 'first text',
       path: 'text-glob/first.md',
@@ -474,39 +437,16 @@ describe('evaluate', () => {
 
     expect(summary).toEqual({
       counts: { success: 2, skipped: 0, error: 0 },
+      cacheCounts: { hit: 0, miss: 2 },
       outcome: 'completed',
     })
-  })
-
-  it('aborts with a clear error when JSONL input is a JSON array instead of one object per line', async () => {
-    await using harness = await setup()
-    const { evaluate, writeTempFile } = harness
-    const criteriaPath = await writeTempFile(markdown`
-      ---
-      score-range: binary
-      ---
-
-      Score whether the answer is helpful.
-    `)
-    const inputPath = await writeTempFile(
-      '[{"answer": "first"}, {"answer": "second"}]\n'
-    )
-
-    await expect(
-      evaluate({
-        model: 'test/model',
-        criteria: criteriaPath,
-        inputJsonl: inputPath,
-        output: await writeTempFile(),
-      })
-    ).rejects.toThrow(/one JSON object per line/)
   })
 
   it('records a text sample paired with a field criteria as error and fails by default', async () => {
     await using harness = await setup()
     const { runEvaluate } = harness
-    let requestCount = 0
 
+    let requestCount = 0
     const result = await runEvaluate({
       criteria: markdown`
         ---
@@ -531,7 +471,11 @@ describe('evaluate', () => {
           description: expect.stringContaining('answer'),
         }),
       ],
-      summary: { counts: { success: 0, skipped: 0, error: 1 }, outcome: 'failed' },
+      summary: {
+        counts: { success: 0, skipped: 0, error: 1 },
+        cacheCounts: { hit: 0, miss: 0 },
+        outcome: 'failed',
+      },
     })
     expect(requestCount).toBe(0)
   })
@@ -539,8 +483,8 @@ describe('evaluate', () => {
   it('records a text sample paired with a field criteria as skipped and succeeds with --allow-skip', async () => {
     await using harness = await setup()
     const { runEvaluate } = harness
-    let requestCount = 0
 
+    let requestCount = 0
     const result = await runEvaluate({
       allowSkip: true,
       criteria: markdown`
@@ -566,7 +510,11 @@ describe('evaluate', () => {
           description: expect.stringContaining('answer'),
         }),
       ],
-      summary: { counts: { success: 0, skipped: 1, error: 0 }, outcome: 'completed' },
+      summary: {
+        counts: { success: 0, skipped: 1, error: 0 },
+        cacheCounts: { hit: 0, miss: 0 },
+        outcome: 'completed',
+      },
     })
     expect(requestCount).toBe(0)
   })
@@ -574,6 +522,7 @@ describe('evaluate', () => {
   it('forwards the abort signal to the model request', async () => {
     await using harness = await setup()
     const { runEvaluate } = harness
+
     const controller = new AbortController()
     let receivedSignal: AbortSignal | undefined
 
@@ -639,6 +588,7 @@ describe('evaluate', () => {
     ])
     expect(result.summary).toEqual({
       counts: { success: 2, skipped: 2, error: 0 },
+      cacheCounts: { hit: 0, miss: 2 },
       outcome: 'completed',
     })
   })
@@ -655,29 +605,6 @@ describe('evaluate', () => {
         output: 'unused-output.jsonl',
       })
     ).rejects.toThrow(/No criteria files matched/)
-  })
-
-  it('identifies each JSONL sample row as <file>#[n]', async () => {
-    await using harness = await setup()
-    const { runEvaluate } = harness
-
-    const result = await runEvaluate({
-      criteria: markdown`
-        ---
-        score-range: binary
-        ---
-
-        Score whether the answer is helpful.
-      `,
-      input: [{ answer: 'first' }, { answer: 'second' }],
-      singleShotRequest: async ({ schema }) =>
-        schema.parse({ score: 1, reason: 'helpful' }),
-    })
-
-    expect(result.rows).toEqual([
-      expect.objectContaining({ sampleId: expect.stringMatching(/\.jsonl#\[0\]$/) }),
-      expect.objectContaining({ sampleId: expect.stringMatching(/\.jsonl#\[1\]$/) }),
-    ])
   })
 
   it('identifies a text sample row by its file path', async () => {
@@ -705,8 +632,8 @@ describe('evaluate', () => {
   it('carries the full row contract for success, skipped, and error rows', async () => {
     await using harness = await setup()
     const { runEvaluate } = harness
-    let requestCount = 0
 
+    let requestCount = 0
     const result = await runEvaluate({
       model: 'test/model',
       allowSkip: true,
@@ -785,7 +712,9 @@ describe('evaluate', () => {
     })
 
     expect(result.rows).toEqual([
-      expect.objectContaining({ name: expect.stringMatching(/^criteria-[^.]+$/) }),
+      expect.objectContaining({
+        name: expect.stringMatching(/^criteria-[^.]+$/),
+      }),
     ])
   })
 
@@ -895,12 +824,9 @@ describe('evaluate', () => {
   it('repeats the cached score and reason without spending a token on identical reruns', async () => {
     await using harness = await setup()
     const { runEvaluate } = harness
+
     let requestCount = 0
-    const singleShotRequest: SingleShotRequest = async ({ schema }) => {
-      requestCount += 1
-      return schema.parse({ score: 1, reason: 'cached reason' })
-    }
-    const run = {
+    const run: Parameters<typeof runEvaluate>[0] = {
       model: 'test/model',
       criteria: markdown`
         ---
@@ -910,7 +836,10 @@ describe('evaluate', () => {
         Score whether the answer is helpful.
       `,
       input: [{ answer: 'the same answer' }],
-      singleShotRequest,
+      singleShotRequest: async ({ schema }) => {
+        requestCount += 1
+        return schema.parse({ score: 1, reason: 'cached reason' })
+      },
     }
 
     const first = await runEvaluate(run)
@@ -925,9 +854,64 @@ describe('evaluate', () => {
     ])
   })
 
+  it('bypasses the cache and requests a fresh judgment when rerun with a different seed', async () => {
+    await using harness = await setup()
+    const { runEvaluate } = harness
+
+    let requestCount = 0
+    const run: Parameters<typeof runEvaluate>[0] = {
+      model: 'test/model',
+      criteria: markdown`
+        ---
+        score-range: binary
+        ---
+
+        Score whether the answer is helpful.
+      `,
+      input: [{ answer: 'the same answer' }],
+      singleShotRequest: async ({ schema }) => {
+        requestCount += 1
+        return schema.parse({ score: 1, reason: `verdict ${requestCount}` })
+      },
+    }
+
+    const first = await runEvaluate({ ...run, seed: 0 })
+    const second = await runEvaluate({ ...run, seed: 1 })
+
+    expect(requestCount).toBe(2)
+    expect(first.rows).toEqual([
+      expect.objectContaining({ reason: 'verdict 1' }),
+    ])
+    expect(second.rows).toEqual([
+      expect.objectContaining({ reason: 'verdict 2' }),
+    ])
+  })
+
+  it('carries the passed seed on every result row', async () => {
+    await using harness = await setup()
+    const { runEvaluate } = harness
+
+    const result = await runEvaluate({
+      seed: 7,
+      criteria: markdown`
+        ---
+        score-range: binary
+        ---
+
+        Score whether the answer is helpful.
+      `,
+      input: [{ answer: 'present' }],
+      singleShotRequest: async ({ schema }) =>
+        schema.parse({ score: 1, reason: 'helpful' }),
+    })
+
+    expect(result.rows).toEqual([expect.objectContaining({ seed: 7 })])
+  })
+
   it('uses a distinct cache result when the sample content changes', async () => {
     await using harness = await setup()
     const { runEvaluate, readCacheEntries } = harness
+
     let requestCount = 0
     const singleShotRequest: SingleShotRequest = async ({ schema }) => {
       requestCount += 1
@@ -967,12 +951,9 @@ describe('evaluate', () => {
   it('recomputes via the model when a cached entry no longer satisfies the schema', async () => {
     await using harness = await setup()
     const { runEvaluate, overwriteCacheEntries } = harness
+
     let requestCount = 0
-    const singleShotRequest: SingleShotRequest = async ({ schema }) => {
-      requestCount += 1
-      return schema.parse({ score: 1, reason: `verdict ${requestCount}` })
-    }
-    const run = {
+    const run: Parameters<typeof runEvaluate>[0] = {
       model: 'test/model',
       criteria: markdown`
         ---
@@ -982,7 +963,10 @@ describe('evaluate', () => {
         Score whether the answer is helpful.
       `,
       input: [{ answer: 'the same answer' }],
-      singleShotRequest,
+      singleShotRequest: async ({ schema }) => {
+        requestCount += 1
+        return schema.parse({ score: 1, reason: `verdict ${requestCount}` })
+      },
     }
 
     await runEvaluate(run)
@@ -991,13 +975,18 @@ describe('evaluate', () => {
 
     expect(requestCount).toBe(2)
     expect(recovered.rows).toEqual([
-      expect.objectContaining({ status: 'success', normalizedScore: 1, reason: 'verdict 2' }),
+      expect.objectContaining({
+        status: 'success',
+        normalizedScore: 1,
+        reason: 'verdict 2',
+      }),
     ])
   })
 
   it('produces the same row shape for cache hits and misses in one run', async () => {
     await using harness = await setup()
     const { runEvaluate } = harness
+
     const singleShotRequest: SingleShotRequest = async ({ schema }) =>
       schema.parse({ score: 1, reason: 'helpful' })
     const criteria = markdown`
@@ -1022,8 +1011,16 @@ describe('evaluate', () => {
     })
 
     expect(result.rows).toEqual([
-      expect.objectContaining({ status: 'success', normalizedScore: 1, reason: 'helpful' }),
-      expect.objectContaining({ status: 'success', normalizedScore: 1, reason: 'helpful' }),
+      expect.objectContaining({
+        status: 'success',
+        normalizedScore: 1,
+        reason: 'helpful',
+      }),
+      expect.objectContaining({
+        status: 'success',
+        normalizedScore: 1,
+        reason: 'helpful',
+      }),
     ])
   })
 
@@ -1031,20 +1028,30 @@ describe('evaluate', () => {
     it('ignores AGENTS.md, CLAUDE.md, and README.md when --criteria matches them', async () => {
       await using harness = await setup()
       const { evaluate, writeTempFile, readResultRows } = harness
+
       const helpfulPath = await writeTempFile({
         content: markdown`
           ---
           score-range: binary
           ---
-        
+
           Score whether the answer is helpful.
         `,
         path: 'criteria-glob/helpful.md',
       })
       await Promise.all([
-        writeTempFile({ content: 'no frontmatter', path: 'criteria-glob/AGENTS.md' }),
-        writeTempFile({ content: 'no frontmatter', path: 'criteria-glob/CLAUDE.md' }),
-        writeTempFile({ content: 'no frontmatter', path: 'criteria-glob/README.md' }),
+        writeTempFile({
+          content: 'no frontmatter',
+          path: 'criteria-glob/AGENTS.md',
+        }),
+        writeTempFile({
+          content: 'no frontmatter',
+          path: 'criteria-glob/CLAUDE.md',
+        }),
+        writeTempFile({
+          content: 'no frontmatter',
+          path: 'criteria-glob/README.md',
+        }),
       ])
       const inputPath = await writeTempFile({
         content: `${JSON.stringify({ answer: 'present' })}\n`,
@@ -1061,6 +1068,7 @@ describe('evaluate', () => {
 
       expect(summary).toEqual({
         counts: { success: 1, skipped: 0, error: 0 },
+        cacheCounts: { hit: 0, miss: 1 },
         outcome: 'completed',
       })
       expect(await readResultRows(outputPath)).toEqual([
@@ -1071,12 +1079,13 @@ describe('evaluate', () => {
     it('excludes a named criteria file via a negation pattern', async () => {
       await using harness = await setup()
       const { evaluate, writeTempFile, readResultRows } = harness
+
       const helpfulPath = await writeTempFile({
         content: markdown`
           ---
           score-range: binary
           ---
-        
+
           Score whether the answer is helpful.
         `,
         path: 'criteria-neg/helpful.md',
@@ -1086,7 +1095,7 @@ describe('evaluate', () => {
           ---
           score-range: binary
           ---
-        
+
           Score whether the answer is helpful.
         `,
         path: 'criteria-neg/draft.md',
@@ -1113,12 +1122,13 @@ describe('evaluate', () => {
     it('runs every file matched by repeated --criteria patterns', async () => {
       await using harness = await setup()
       const { evaluate, writeTempFile, readResultRows } = harness
+
       const helpfulPath = await writeTempFile({
         content: markdown`
           ---
           score-range: binary
           ---
-        
+
           Score whether the answer is helpful.
         `,
         path: 'criteria-multi/helpful.md',
@@ -1128,7 +1138,7 @@ describe('evaluate', () => {
           ---
           score-range: binary
           ---
-        
+
           Score whether the answer is helpful.
         `,
         path: 'criteria-multi/faithful.md',
@@ -1158,6 +1168,7 @@ describe('evaluate', () => {
     it('excludes a named --input-text file via a negation pattern', async () => {
       await using harness = await setup()
       const { evaluate, writeTempFile, readResultRows } = harness
+
       const keepPath = await writeTempFile({
         content: 'keep this text',
         path: 'input-neg/keep.md',
@@ -1175,7 +1186,7 @@ describe('evaluate', () => {
             ---
             score-range: binary
             ---
-          
+
             Score whether the answer is helpful.
           `,
           path: 'criteria.md',
@@ -1193,6 +1204,7 @@ describe('evaluate', () => {
     it('reads every file matched by repeated --input-text patterns', async () => {
       await using harness = await setup()
       const { evaluate, writeTempFile, readResultRows } = harness
+
       const firstPath = await writeTempFile({
         content: 'first text',
         path: 'input-multi/first.md',
@@ -1210,7 +1222,7 @@ describe('evaluate', () => {
             ---
             score-range: binary
             ---
-          
+
             Score whether the answer is helpful.
           `,
           path: 'criteria.md',

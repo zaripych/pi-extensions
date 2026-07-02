@@ -39,10 +39,28 @@ async function readCacheEntry(entryPath: string): Promise<unknown> {
   }
 }
 
+export async function probeResultCache(params: {
+  prompt: string
+  schema: z.ZodType
+  model: string
+  seed: number
+  cacheDir: string
+}): Promise<boolean> {
+  const key = cacheKey({
+    prompt: params.prompt,
+    schema: params.schema,
+    model: params.model,
+    seed: params.seed,
+  })
+  const cached = await readCacheEntry(join(params.cacheDir, key, 'result.json'))
+  return cached !== undefined && params.schema.safeParse(cached).success
+}
+
 export function withResultCache(params: {
   singleShotRequest: SingleShotRequest
   cacheDir: string
   model: string
+  cacheCounts: { hit: number; miss: number }
 }): SingleShotRequest {
   return async ({ prompt, schema, seed, signal }) => {
     const key = cacheKey({ prompt, schema, model: params.model, seed })
@@ -51,9 +69,11 @@ export function withResultCache(params: {
     if (cached !== undefined) {
       const parsed = schema.safeParse(cached)
       if (parsed.success) {
+        params.cacheCounts.hit += 1
         return parsed.data
       }
     }
+    params.cacheCounts.miss += 1
     const result = await params.singleShotRequest({ prompt, schema, seed, signal })
     await mkdir(dirname(entryPath), { recursive: true })
     await writeFile(entryPath, `${JSON.stringify(result, null, 2)}\n`)

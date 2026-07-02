@@ -13,9 +13,11 @@ type RunEvaluateParams = {
   model?: string
   criteria?: string | string[]
   input?: string | Record<string, unknown>[]
+  inputTextNul?: string
   singleShotRequest?: SingleShotRequest
   allowSkip?: boolean
   maxErrors?: number
+  seed?: number
   dryRun?: boolean
   signal?: AbortSignal
 }
@@ -60,7 +62,13 @@ async function writeInput(params: {
   tempDir: string
   id: string
   input: string | Record<string, unknown>[] | undefined
-}): Promise<{ inputText?: string; inputJsonl?: string }> {
+  inputTextNul: string | undefined
+}): Promise<{ inputText?: string; inputJsonl?: string; inputTextNul?: string }> {
+  if (params.inputTextNul !== undefined) {
+    const inputPath = join(params.tempDir, `input-${params.id}.nul`)
+    await writeFile(inputPath, params.inputTextNul)
+    return { inputTextNul: inputPath }
+  }
   if (params.input === undefined) {
     return {}
   }
@@ -171,7 +179,12 @@ export const setupEvaluate = configureHarnesses(
         id,
         criteria: params.criteria,
       })
-      const inputSources = await writeInput({ tempDir, id, input: params.input })
+      const inputSources = await writeInput({
+        tempDir,
+        id,
+        input: params.input,
+        inputTextNul: params.inputTextNul,
+      })
       const evaluateDeps =
         params.singleShotRequest === undefined
           ? deps
@@ -186,9 +199,11 @@ export const setupEvaluate = configureHarnesses(
           criteria: criteriaPath,
           inputText: inputSources.inputText,
           inputJsonl: inputSources.inputJsonl,
+          inputTextNul: inputSources.inputTextNul,
           output: outputPath,
           allowSkip: params.allowSkip,
           maxErrors: params.maxErrors,
+          seed: params.seed,
           dryRun: params.dryRun,
           signal: params.signal,
         },

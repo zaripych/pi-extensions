@@ -43,6 +43,12 @@ export function parseCriteria(params: {
       `Criteria "${params.fileName}" has an invalid score-range: it must be "binary" or "triple".`
     )
   }
+  const fields = (parsed.data.fields ?? []).map((field) => field.name)
+  if (fields.includes('sampleId')) {
+    throw new Error(
+      `Criteria "${params.fileName}" declares the field "sampleId", which is reserved: the CLI strips sampleId from every record before evaluation, so this field can never be supplied.`
+    )
+  }
   const extension = extname(params.fileName)
   const defaultName = extension.length > 0
     ? params.fileName.slice(0, -extension.length)
@@ -50,7 +56,7 @@ export function parseCriteria(params: {
   return {
     name: parsed.data.name ?? defaultName,
     scoreRange: parsed.data['score-range'],
-    fields: (parsed.data.fields ?? []).map((field) => field.name),
+    fields,
     body: body ?? '',
     criteriaHash: shortHash(params.source),
   }
