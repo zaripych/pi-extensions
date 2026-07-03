@@ -143,7 +143,7 @@ function fmtTokens(n: number): string {
 /** Parse a duration argument like "7d" or "30d". Returns number of days or null. */
 function parseDuration(arg: string): number | null {
 	const match = arg.trim().match(/^(\d+)d$/i);
-	if (!match) return null;
+	if (!match || match[1] === undefined) return null;
 	return parseInt(match[1], 10);
 }
 
