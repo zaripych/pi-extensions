@@ -137,11 +137,16 @@ describe("BrowserPool", () => {
 		await expect(pool.acquire(controller.signal)).rejects.toThrow("Aborted");
 	});
 
-	it("throws on acquire after shutdown", async () => {
+	it("relaunches browser on acquire after shutdown", async () => {
 		pool = new BrowserPool();
+		const page = await pool.acquire();
+		await pool.release(page);
 		await pool.shutdown();
+		expect(pool.isRunning).toBe(false);
 
-		await expect(pool.acquire()).rejects.toThrow("shut down");
+		const page2 = await pool.acquire();
+		expect(pool.isRunning).toBe(true);
+		await pool.release(page2);
 	});
 
 	it("shutdown rejects waiting requests", async () => {

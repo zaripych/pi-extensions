@@ -32,7 +32,6 @@ export class BrowserPool {
 	private readonly maxTabs: number;
 	private readonly idleTimeoutMs: number;
 	private waitQueue: Array<{ resolve: () => void; reject: (err: Error) => void }> = [];
-	private closed = false;
 
 	constructor(options?: BrowserPoolOptions) {
 		this.maxTabs = options?.maxTabs ?? DEFAULT_MAX_TABS;
@@ -45,7 +44,6 @@ export class BrowserPool {
 	 * The returned page must be released via release() when done.
 	 */
 	async acquire(signal?: AbortSignal): Promise<Page> {
-		if (this.closed) throw new Error("BrowserPool is shut down");
 		if (signal?.aborted) throw new Error("Aborted");
 
 		// Wait for a slot if at capacity
@@ -91,9 +89,9 @@ export class BrowserPool {
 
 	/**
 	 * Immediately close the browser and reject any waiting requests.
+	 * The pool stays usable: a later acquire() relaunches the browser.
 	 */
 	async shutdown(): Promise<void> {
-		this.closed = true;
 		this.clearIdleTimer();
 
 		// Reject all waiters
@@ -193,7 +191,7 @@ export class BrowserPool {
 		if (this.activeTabs > 0 || this.waitQueue.length > 0) return;
 		this.clearIdleTimer();
 		this.idleTimer = setTimeout(() => {
-			if (this.activeTabs === 0 && !this.closed) {
+			if (this.activeTabs === 0) {
 				this.closeBrowser();
 			}
 		}, this.idleTimeoutMs);
