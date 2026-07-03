@@ -4,7 +4,7 @@ import { spawnToFile } from './spawnToFile'
 
 const execFileAsync = promisify(execFile)
 
-// biome-ignore lint/suspicious/noControlCharactersInRegex: not an input
+// oxlint-disable-next-line no-control-regex -- not an input
 const controlCharacterPattern = /[\u0000-\u001F\u007F]/u
 const hexShaPattern = /^[0-9a-fA-F]{7,40}$/
 

@@ -29,15 +29,18 @@ export async function discoverCliCommands(
   const help = (path: readonly string[]): Promise<string> =>
     limiter(() => deps.runCliHelp({ cli, path }))
 
-  async function discoverAt(params: {
+  async function discoverAt({
+    parentPath,
+    helpText,
+  }: {
     parentPath: readonly string[]
     helpText: string
   }): Promise<DiscoveredCommand[]> {
-    if (!params.helpText) return []
-    const commands = parseHelpCommands(params.helpText)
+    if (!helpText) return []
+    const commands = parseHelpCommands(helpText)
     const resolved = await Promise.all(
       commands.map(async (command) => {
-        const path = [...params.parentPath, command.name]
+        const path = [...parentPath, command.name]
         if (path.length >= MAX_DEPTH) {
           return [{ path, description: command.description }]
         }
@@ -45,7 +48,10 @@ export async function discoverCliCommands(
         if (!subHelp || !hasHelpSubcommands(subHelp)) {
           return [{ path, description: command.description }]
         }
-        const children = await discoverAt({ parentPath: path, helpText: subHelp })
+        const children = await discoverAt({
+          parentPath: path,
+          helpText: subHelp,
+        })
         return children.length > 0
           ? children
           : [{ path, description: command.description }]
@@ -73,7 +79,9 @@ function createLimiter(concurrency: number): Limiter {
 
   return async <R>(fn: () => Promise<R>): Promise<R> => {
     if (active >= concurrency) {
-      await new Promise<void>((resolve) => queue.push(resolve))
+      await new Promise<void>((resolve) => {
+        queue.push(resolve)
+      })
     }
     active++
     try {

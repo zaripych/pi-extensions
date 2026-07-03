@@ -49,17 +49,19 @@ export async function createGuardrail(
   // extension loading, so the load path must not touch them. It only loads the
   // policy into context; the initial active-tool narrowing happens at
   // session_start, and command-time mode changes narrow immediately.
-  async function loadPolicyIntoContext(params: {
+  async function loadPolicyIntoContext({
+    mode,
+  }: {
     mode: ActiveGuardrailMode
   }): Promise<void> {
     const result = await deps.loadPolicy()
     if (result.status === 'error') {
-      context = { status: 'policy-error', mode: params.mode, error: result.error }
+      context = { status: 'policy-error', mode, error: result.error }
       return
     }
     context = {
       status: 'ready',
-      mode: params.mode,
+      mode,
       policy: result.policy,
       diagnostics: result.diagnostics,
       sessionGrants: createSessionGrants(),
@@ -84,17 +86,21 @@ export async function createGuardrail(
     )
   }
 
-  async function enable(params: { mode: ActiveGuardrailMode }): Promise<void> {
-    await loadPolicyIntoContext({ mode: params.mode })
+  async function enable({
+    mode,
+  }: {
+    mode: ActiveGuardrailMode
+  }): Promise<void> {
+    await loadPolicyIntoContext({ mode })
     applyActiveTools()
   }
 
-  function switchMode(params: { mode: ActiveGuardrailMode }): void {
+  function switchMode({ mode }: { mode: ActiveGuardrailMode }): void {
     if (context.status !== 'ready') return
-    if (context.mode === params.mode) return
+    if (context.mode === mode) return
     context = {
       status: 'ready',
-      mode: params.mode,
+      mode,
       policy: context.policy,
       diagnostics: context.diagnostics,
       sessionGrants: createSessionGrants(),
@@ -138,35 +144,40 @@ export async function createGuardrail(
   }
 
   return {
-    handleToolCall: (params: { event: ToolCallEvent; ctx: ExtensionContext }) =>
-      handleToolCall({ ...params, runtime }),
-    handleBeforeAgentStart: (params: { event: BeforeAgentStartEvent }) =>
-      handleBeforeAgentStart({ ...params, runtime }),
-    handleSessionStart(params: { ctx: ExtensionContext }) {
+    handleToolCall: ({
+      event,
+      ctx,
+    }: {
+      event: ToolCallEvent
+      ctx: ExtensionContext
+    }) => handleToolCall({ event, ctx, runtime }),
+    handleBeforeAgentStart: ({ event }: { event: BeforeAgentStartEvent }) =>
+      handleBeforeAgentStart({ event, runtime }),
+    handleSessionStart({ ctx }: { ctx: ExtensionContext }) {
       const current = runtime.getContext()
       applyActiveTools()
       if (current.status === 'policy-error') {
-        params.ctx.ui.notify(
+        ctx.ui.notify(
           formatConfigErrorNotice({ error: current.error }),
           'error'
         )
         return
       }
       if (isFailedContext(current)) {
-        params.ctx.ui.notify(current.error, 'error')
+        ctx.ui.notify(current.error, 'error')
         return
       }
       if (current.status === 'ready' && current.diagnostics.length > 0) {
-        params.ctx.ui.notify(
-          formatDiagnosticsWarning(current.diagnostics),
-          'warning'
-        )
+        ctx.ui.notify(formatDiagnosticsWarning(current.diagnostics), 'warning')
       }
     },
-    handleGuardrailCommand: (params: {
+    handleGuardrailCommand: ({
+      args,
+      ctx,
+    }: {
       args: string
       ctx: ExtensionCommandContext
-    }) => deps.handleGuardrailCommand({ ...params, runtime }),
+    }) => deps.handleGuardrailCommand({ args, ctx, runtime }),
   }
 }
 

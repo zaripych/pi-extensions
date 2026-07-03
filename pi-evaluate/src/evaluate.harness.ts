@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { faker } from '@faker-js/faker'
@@ -49,10 +56,7 @@ async function writeCriteria(params: {
   }
   await Promise.all(
     bodies.map((body, index) =>
-      writeFile(
-        join(params.tempDir, `criteria-${params.id}-${index}.md`),
-        body
-      )
+      writeFile(join(params.tempDir, `criteria-${params.id}-${index}.md`), body)
     )
   )
   return join(params.tempDir, `criteria-${params.id}-*.md`)
@@ -63,7 +67,11 @@ async function writeInput(params: {
   id: string
   input: string | Record<string, unknown>[] | undefined
   inputTextNul: string | undefined
-}): Promise<{ inputText?: string; inputJsonl?: string; inputTextNul?: string }> {
+}): Promise<{
+  inputText?: string
+  inputJsonl?: string
+  inputTextNul?: string
+}> {
   if (params.inputTextNul !== undefined) {
     const inputPath = join(params.tempDir, `input-${params.id}.nul`)
     await writeFile(inputPath, params.inputTextNul)
@@ -112,7 +120,9 @@ function createDepsWithSingleShotRequest(params: {
   cacheDir: string
 }) {
   return {
-    createCliRequestOutput: () => ({ singleShotRequest: params.singleShotRequest }),
+    createCliRequestOutput: () => ({
+      singleShotRequest: params.singleShotRequest,
+    }),
     getCacheDir: async () => params.cacheDir,
   }
 }
@@ -140,7 +150,7 @@ export const setupEvaluate = configureHarnesses(
 
     async function readCacheEntries(): Promise<string[]> {
       try {
-        return (await readdir(cacheDir)).sort()
+        return (await readdir(cacheDir)).toSorted()
       } catch (error) {
         if (missingFileErrorSchema.safeParse(error).success) {
           return []
@@ -157,8 +167,11 @@ export const setupEvaluate = configureHarnesses(
       )
     }
 
-    async function writeTempFile(params: WriteTempFileParams = ''): Promise<string> {
-      const content = typeof params === 'string' ? params : (params.content ?? '')
+    async function writeTempFile(
+      params: WriteTempFileParams = ''
+    ): Promise<string> {
+      const content =
+        typeof params === 'string' ? params : (params.content ?? '')
       const relativePath =
         typeof params === 'string' || params.path === undefined
           ? `temp-${faker.string.alphanumeric(8)}`
@@ -171,7 +184,10 @@ export const setupEvaluate = configureHarnesses(
 
     async function runEvaluate(
       params: RunEvaluateParams
-    ): Promise<{ rows: unknown[]; summary: Awaited<ReturnType<typeof evaluate>> }> {
+    ): Promise<{
+      rows: unknown[]
+      summary: Awaited<ReturnType<typeof evaluate>>
+    }> {
       const id = faker.string.alphanumeric(8)
       const outputPath = join(tempDir, `eval-results-${id}.jsonl`)
       const criteriaPath = await writeCriteria({

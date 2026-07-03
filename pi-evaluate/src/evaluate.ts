@@ -51,7 +51,7 @@ async function resolvePaths(params: {
   return entries
     .filter((entry) => !entry.dirent.isDirectory())
     .map((entry) => entry.path)
-    .sort()
+    .toSorted()
 }
 
 function chooseInputSource(params: {
@@ -166,16 +166,16 @@ export async function evaluate(
   const seed = params.seed ?? 0
   const cacheCounts = { hit: 0, miss: 0 }
   const cacheDir = await deps.getCacheDir()
-  const dryRunRequest: SingleShotRequest = async ({ prompt, schema, seed }) => {
+  const dryRunRequest: SingleShotRequest = async (request) => {
     const isHit = await probeResultCache({
-      prompt,
-      schema,
+      prompt: request.prompt,
+      schema: request.schema,
       model: params.model,
-      seed,
+      seed: request.seed,
       cacheDir,
     })
     cacheCounts[isHit ? 'hit' : 'miss'] += 1
-    return schema.parse({ score: 0, reason: 'dry-run' })
+    return request.schema.parse({ score: 0, reason: 'dry-run' })
   }
   const singleShotRequest = dryRun
     ? dryRunRequest

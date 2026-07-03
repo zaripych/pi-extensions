@@ -79,7 +79,7 @@ export const setupE2e = configureHarnesses(async () => {
     stdout: string
     resultRows?: unknown[]
   }> {
-    const outputPath = findOutputPath(params.args)
+    const argsOutputPath = findOutputPath(params.args)
 
     async function withResultRows(result: {
       code: number | string | undefined
@@ -91,10 +91,10 @@ export const setupE2e = configureHarnesses(async () => {
       stdout: string
       resultRows?: unknown[]
     }> {
-      if (outputPath === undefined) {
+      if (argsOutputPath === undefined) {
         return result
       }
-      return { ...result, resultRows: await readJsonlRows(outputPath) }
+      return { ...result, resultRows: await readJsonlRows(argsOutputPath) }
     }
 
     try {
@@ -121,11 +121,16 @@ export const setupE2e = configureHarnesses(async () => {
     }
   }
 
-  async function inputArgs(input: string | Record<string, unknown>[]): Promise<string[]> {
+  async function inputArgs(
+    input: string | Record<string, unknown>[]
+  ): Promise<string[]> {
     return writeInput({ tempDir, id, input })
   }
 
-  async function writeTempFile(params: { name: string; content: string }): Promise<string> {
+  async function writeTempFile(params: {
+    name: string
+    content: string
+  }): Promise<string> {
     const filePath = join(tempDir, params.name)
     await writeFile(filePath, params.content)
     return filePath

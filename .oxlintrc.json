@@ -1,0 +1,8 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "extends": ["./foundation/.oxlintrc.json"],
+  "options": {
+    "typeAware": true
+  },
+  "ignorePatterns": ["pi-web-fetch", "pi-sandbox"]
+}

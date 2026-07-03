@@ -12,8 +12,7 @@ describe('loadConfig', () => {
 
     const result = await harness.loadConfig()
 
-    const expectedPromptContent =
-      await harness.getDefaultSystemPromptContent()
+    const expectedPromptContent = await harness.getDefaultSystemPromptContent()
 
     expect(result).toEqual({
       config: {
@@ -35,7 +34,7 @@ describe('loadConfig', () => {
 
     await harness.loadConfig()
 
-    await expect(harness.readFile(harness.configPath)).rejects.toThrow()
+    await expect(harness.readFile(harness.configPath)).rejects.toThrow('ENOENT')
   })
 
   it('creates system prompt file when missing', async () => {

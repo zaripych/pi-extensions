@@ -14,7 +14,7 @@ export const setupCollectSessionCostRecords = configureHarnesses(
     const sessionsDir = await mkdtemp(
       join(tmpdir(), 'pi-cost-counter-sessions-')
     )
-    const deps = await configureDependencies(
+    const deps = configureDependencies(
       {
         inferTypesFrom: { defaultDeps: collectSessionCostRecords.defaultDeps },
         userDeps,

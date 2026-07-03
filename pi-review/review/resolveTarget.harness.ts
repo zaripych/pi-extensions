@@ -10,7 +10,7 @@ export const setupResolveTarget = configureHarnesses(
   },
   setupGitCommands,
   async (userDeps) => {
-    const deps = await configureDependencies(
+    const deps = configureDependencies(
       {
         inferTypesFrom: { defaultDeps: resolveTarget.defaultDeps },
         userDeps,

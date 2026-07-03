@@ -51,7 +51,7 @@ describe('evaluate --input-jsonl', () => {
     const inputDir = dirname(firstInputPath)
     const outputPath = await writeTempFile({ path: 'results.jsonl' })
     const expectedSampleIds = [firstInputPath, secondInputPath]
-      .sort()
+      .toSorted()
       .flatMap((path) =>
         path === firstInputPath
           ? [`${firstInputPath}#[0]`, `${firstInputPath}#[1]`]

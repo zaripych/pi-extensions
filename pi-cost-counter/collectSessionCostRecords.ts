@@ -94,10 +94,18 @@ export async function collectSessionCostRecords(
       const { timestamp, provider, model, usage } = result.data.message
       if (timestamp < startMs || timestamp > endMs) continue
       const { cost, ...tokens } = usage
-      records.push({ ts: timestamp, sessionId, cwd, provider, model, tokens, cost })
+      records.push({
+        ts: timestamp,
+        sessionId,
+        cwd,
+        provider,
+        model,
+        tokens,
+        cost,
+      })
     }
   }
-  return { records: records.sort((a, b) => a.ts - b.ts), stats }
+  return { records: records.toSorted((a, b) => a.ts - b.ts), stats }
 }
 
 collectSessionCostRecords.defaultDeps = defaultDeps
