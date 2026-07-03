@@ -23,6 +23,7 @@
   },
   "files": [
     "index.ts",
+    "collectSessionCostRecords.ts",
     "README.md",
     "LICENSE"
   ],
@@ -35,6 +36,14 @@
     "clean": "echo 'nothing to clean'",
     "build": "echo 'nothing to build'",
     "check": "echo 'nothing to check'"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "26.0.0",
+    "foundation": "workspace:*",
+    "vitest": "4.1.9"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"

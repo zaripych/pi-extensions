@@ -1,50 +1,21 @@
 /**
  * Cost Tracker Extension for pi
  *
- * Tracks LLM API costs across all pi sessions. Writes append-only JSONL records
- * organised by year/month/day for safe concurrent access from multiple pi clients.
+ * Summarizes LLM API costs across all pi sessions by reading pi's own
+ * session files (JSONL files under ~/.pi/agent/sessions).
  *
- * - Captures cost data from every assistant message (message_end event)
- * - Displays running session cost in the footer status bar
  * - Provides /cost command for daily totals and model breakdowns
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { appendFile, mkdir, readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { homedir } from "node:os";
+import { collectSessionCostRecords } from "./collectSessionCostRecords";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-interface CostRecord {
-	ts: number;
-	provider: string;
-	model: string;
-	tokens: {
-		input: number;
-		output: number;
-		cacheRead: number;
-		cacheWrite: number;
-	};
-	cost: {
-		input: number;
-		output: number;
-		cacheRead: number;
-		cacheWrite: number;
-		total: number;
-	};
-}
-
-interface AggregatedDay {
-	date: string;
-	total: number;
-	byModel: Map<string, { total: number; tokens: number; calls: number }>;
-}
+type CostRecord = Awaited<ReturnType<typeof collectSessionCostRecords>>["records"][number];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-const BASE_DIR = join(homedir(), ".pi", "cost-tracker");
 
 /** Return { year, month, day } strings for a Date in local time. */
 function dateParts(d: Date): { year: string; month: string; day: string } {
@@ -53,12 +24,6 @@ function dateParts(d: Date): { year: string; month: string; day: string } {
 		month: String(d.getMonth() + 1).padStart(2, "0"),
 		day: String(d.getDate()).padStart(2, "0"),
 	};
-}
-
-/** Absolute path to the JSONL file for a given date. */
-function dayFilePath(d: Date): string {
-	const { year, month, day } = dateParts(d);
-	return join(BASE_DIR, year, month, `${day}.jsonl`);
 }
 
 /** Format a date as YYYY-MM-DD. */
@@ -79,51 +44,28 @@ function dateRange(start: Date, end: Date): Date[] {
 	return dates;
 }
 
-/** Read and parse all records from a day file. Returns [] if file doesn't exist. */
-async function readDayFile(path: string): Promise<CostRecord[]> {
-	if (!existsSync(path)) return [];
-	try {
-		const raw = await readFile(path, "utf8");
-		return raw
-			.split("\n")
-			.filter((line) => line.trim().length > 0)
-			.map((line) => JSON.parse(line) as CostRecord);
-	} catch {
-		return [];
-	}
-}
-
-/** Aggregate records into per-day summaries. */
-function aggregate(records: CostRecord[], dates: Date[]): AggregatedDay[] {
-	// Group records by local date string
-	const byDate = new Map<string, CostRecord[]>();
-	for (const d of dates) {
-		byDate.set(fmtDate(d), []);
-	}
+/** Sum record cost per local date (YYYY-MM-DD). */
+function totalsByDay(records: CostRecord[]): Map<string, number> {
+	const totals = new Map<string, number>();
 	for (const r of records) {
 		const key = fmtDate(new Date(r.ts));
-		const list = byDate.get(key);
-		if (list) list.push(r);
+		totals.set(key, (totals.get(key) ?? 0) + r.cost.total);
 	}
+	return totals;
+}
 
-	const days: AggregatedDay[] = [];
-	for (const d of dates) {
-		const key = fmtDate(d);
-		const recs = byDate.get(key) ?? [];
-		const byModel = new Map<string, { total: number; tokens: number; calls: number }>();
-		let total = 0;
-		for (const r of recs) {
-			total += r.cost.total;
-			const modelKey = `${r.provider}/${r.model}`;
-			const existing = byModel.get(modelKey) ?? { total: 0, tokens: 0, calls: 0 };
-			existing.total += r.cost.total;
-			existing.tokens += r.tokens.input + r.tokens.output + r.tokens.cacheRead + r.tokens.cacheWrite;
-			existing.calls += 1;
-			byModel.set(modelKey, existing);
-		}
-		days.push({ date: key, total, byModel });
+/** Group records by key, sorted by total cost descending. */
+function tally(records: CostRecord[], keyOf: (r: CostRecord) => string) {
+	const map = new Map<string, { total: number; tokens: number; calls: number; cwd: string }>();
+	for (const r of records) {
+		const key = keyOf(r);
+		const existing = map.get(key) ?? { total: 0, tokens: 0, calls: 0, cwd: r.cwd };
+		existing.total += r.cost.total;
+		existing.tokens += r.tokens.input + r.tokens.output + r.tokens.cacheRead + r.tokens.cacheWrite;
+		existing.calls += 1;
+		map.set(key, existing);
 	}
-	return days;
+	return [...map.entries()].sort((a, b) => b[1].total - a[1].total);
 }
 
 /** Format dollars with appropriate precision. */
@@ -140,6 +82,11 @@ function fmtTokens(n: number): string {
 	return String(n);
 }
 
+/** Shorten a project path for display: home prefix becomes ~. */
+function fmtProject(cwd: string): string {
+	return cwd.startsWith(homedir()) ? `~${cwd.slice(homedir().length)}` : cwd;
+}
+
 /** Parse a duration argument like "7d" or "30d". Returns number of days or null. */
 function parseDuration(arg: string): number | null {
 	const match = arg.trim().match(/^(\d+)d$/i);
@@ -150,41 +97,6 @@ function parseDuration(arg: string): number | null {
 // ── Extension ────────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
-	// ── Append cost record on every assistant message ────────────────────────
-
-	pi.on("message_end", async (event, _ctx) => {
-		const msg = event.message;
-		if (msg.role !== "assistant") return;
-
-		const usage = (msg as any).usage;
-		if (!usage?.cost) return;
-
-		const record: CostRecord = {
-			ts: Date.now(),
-			provider: (msg as any).provider ?? "unknown",
-			model: (msg as any).model ?? "unknown",
-			tokens: {
-				input: usage.input ?? 0,
-				output: usage.output ?? 0,
-				cacheRead: usage.cacheRead ?? 0,
-				cacheWrite: usage.cacheWrite ?? 0,
-			},
-			cost: {
-				input: usage.cost.input ?? 0,
-				output: usage.cost.output ?? 0,
-				cacheRead: usage.cost.cacheRead ?? 0,
-				cacheWrite: usage.cost.cacheWrite ?? 0,
-				total: usage.cost.total ?? 0,
-			},
-		};
-
-		// Persist record
-		const filePath = dayFilePath(new Date());
-		const dir = join(filePath, "..");
-		await mkdir(dir, { recursive: true });
-		await appendFile(filePath, JSON.stringify(record) + "\n", "utf8");
-	});
-
 	// ── /cost command ────────────────────────────────────────────────────────
 
 	pi.registerCommand("cost", {
@@ -205,19 +117,24 @@ export default function (pi: ExtensionAPI) {
 
 			// Build date range
 			const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (days - 1));
-			const dates = dateRange(start, today);
 
-			// Read all records in range
-			const allRecords: CostRecord[] = [];
-			for (const d of dates) {
-				const recs = await readDayFile(dayFilePath(d));
-				allRecords.push(...recs);
-			}
-
-			const aggregated = aggregate(allRecords, dates);
+			// Read all records in range from pi session files
+			const { records, stats } = await collectSessionCostRecords({ start, end: today });
 
 			// Build output
 			const lines: string[] = [];
+
+			const pushSection = (title: string, rows: { label: string; total: number; suffix: string }[]) => {
+				if (rows.length === 0) return;
+				lines.push("");
+				lines.push(theme.fg("accent", `  ${title}`));
+				lines.push(theme.fg("dim", "  ─".padEnd(60, "─")));
+				for (const row of rows) {
+					lines.push(
+						`  ${theme.fg("dim", row.label.padEnd(45))} ${theme.bold(fmtCost(row.total).padStart(8))}  ${theme.fg("dim", row.suffix)}`,
+					);
+				}
+			};
 
 			if (days === 1) {
 				lines.push(theme.bold(theme.fg("accent", `Cost for ${fmtDate(today)}`)));
@@ -227,55 +144,72 @@ export default function (pi: ExtensionAPI) {
 			lines.push("");
 
 			// Grand total
-			const grandTotal = allRecords.reduce((sum, r) => sum + r.cost.total, 0);
-			const grandTokens = allRecords.reduce(
+			const grandTotal = records.reduce((sum, r) => sum + r.cost.total, 0);
+			const grandTokens = records.reduce(
 				(sum, r) => sum + r.tokens.input + r.tokens.output + r.tokens.cacheRead + r.tokens.cacheWrite,
 				0,
 			);
-			const grandCalls = allRecords.length;
+			const grandCalls = records.length;
 			lines.push(
 				`  ${theme.fg("success", "Total")}: ${theme.bold(fmtCost(grandTotal))}  ${theme.fg("dim", `${fmtTokens(grandTokens)} tokens · ${grandCalls} calls`)}`,
 			);
-			lines.push("");
 
 			// Per-day breakdown (only if multi-day)
 			if (days > 1) {
+				const totals = totalsByDay(records);
+				lines.push("");
 				lines.push(theme.fg("accent", "  Daily breakdown"));
 				lines.push(theme.fg("dim", "  ─".padEnd(60, "─")));
-				for (const day of aggregated) {
-					if (day.total === 0 && day.byModel.size === 0) {
-						lines.push(`  ${theme.fg("dim", day.date)}  ${theme.fg("dim", "—")}`);
-					} else {
-						lines.push(`  ${theme.fg("dim", day.date)}  ${theme.bold(fmtCost(day.total))}`);
-					}
-				}
-				lines.push("");
-			}
-
-			// Model breakdown (across entire range)
-			const globalByModel = new Map<string, { total: number; tokens: number; calls: number }>();
-			for (const r of allRecords) {
-				const key = `${r.provider}/${r.model}`;
-				const existing = globalByModel.get(key) ?? { total: 0, tokens: 0, calls: 0 };
-				existing.total += r.cost.total;
-				existing.tokens += r.tokens.input + r.tokens.output + r.tokens.cacheRead + r.tokens.cacheWrite;
-				existing.calls += 1;
-				globalByModel.set(key, existing);
-			}
-
-			if (globalByModel.size > 0) {
-				lines.push(theme.fg("accent", "  By model"));
-				lines.push(theme.fg("dim", "  ─".padEnd(60, "─")));
-				const sorted = [...globalByModel.entries()].sort((a, b) => b[1].total - a[1].total);
-				for (const [model, data] of sorted) {
+				for (const d of dateRange(start, today)) {
+					const key = fmtDate(d);
+					const total = totals.get(key);
 					lines.push(
-						`  ${theme.fg("dim", model.padEnd(45))} ${theme.bold(fmtCost(data.total).padStart(8))}  ${theme.fg("dim", `${fmtTokens(data.tokens)} tok · ${data.calls} calls`)}`,
+						total === undefined
+							? `  ${theme.fg("dim", key)}  ${theme.fg("dim", "—")}`
+							: `  ${theme.fg("dim", key)}  ${theme.bold(fmtCost(total))}`,
 					);
 				}
 			}
 
-			if (allRecords.length === 0) {
+			pushSection(
+				"By model",
+				tally(records, (r) => `${r.provider}/${r.model}`).map(([model, data]) => ({
+					label: model,
+					total: data.total,
+					suffix: `${fmtTokens(data.tokens)} tok · ${data.calls} calls`,
+				})),
+			);
+
+			pushSection(
+				"By project",
+				tally(records, (r) => r.cwd).map(([cwd, data]) => ({
+					label: fmtProject(cwd),
+					total: data.total,
+					suffix: `${data.calls} calls`,
+				})),
+			);
+
+			const bySession = tally(records, (r) => r.sessionId);
+			pushSection(
+				`Top sessions (${Math.min(10, bySession.length)} of ${bySession.length})`,
+				bySession.slice(0, 10).map(([sessionId, data]) => ({
+					label: `${sessionId.slice(0, 8)} · ${fmtProject(data.cwd)}`,
+					total: data.total,
+					suffix: `${data.calls} calls`,
+				})),
+			);
+
+			if (records.length === 0) {
 				lines.push(theme.fg("dim", "  No cost data recorded for this period."));
+			}
+
+			if (stats.invalidJsonLines > 0 || stats.schemaMismatchLines > 0) {
+				lines.push(
+					theme.fg(
+						"dim",
+						`  Skipped session lines: ${stats.invalidJsonLines} invalid JSON · ${stats.schemaMismatchLines} schema mismatch`,
+					),
+				);
 			}
 
 			ctx.ui.notify(lines.join("\n"), "info");
