@@ -54,6 +54,78 @@ export async function listBranches(params: {
     .filter((line) => line !== '')
 }
 
+export async function getCurrentBranch(params: {
+  cwd?: string
+}): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['symbolic-ref', '--short', 'HEAD'],
+      { cwd: params.cwd }
+    )
+    return stdout.trim()
+  } catch {
+    return 'HEAD'
+  }
+}
+
+export async function getDefaultBranch(params: {
+  cwd?: string
+}): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['rev-parse', '--abbrev-ref', 'origin/HEAD'],
+      { cwd: params.cwd }
+    )
+    const name = stdout.trim()
+    return name.startsWith('origin/') ? name.slice('origin/'.length) : name
+  } catch {
+    return undefined
+  }
+}
+
+export async function hasUncommittedChanges(params: {
+  cwd?: string
+}): Promise<boolean> {
+  const { stdout } = await execFileAsync('git', ['status', '--porcelain'], {
+    cwd: params.cwd,
+  })
+  return stdout.trim() !== ''
+}
+
+export async function fetchOrigin(params: { cwd?: string }): Promise<void> {
+  await execFileAsync('git', ['fetch', 'origin'], {
+    cwd: params.cwd,
+  })
+}
+
+export async function listBranchesWithAuthors(params: {
+  cwd?: string
+}): Promise<{ name: string; author: string }[]> {
+  const { stdout } = await execFileAsync(
+    'git',
+    [
+      'for-each-ref',
+      'refs/heads',
+      'refs/remotes',
+      '--sort=-committerdate',
+      '--format=%(refname)\t%(refname:short)\t%(authorname)',
+    ],
+    { cwd: params.cwd }
+  )
+  return stdout
+    .split('\n')
+    .filter(
+      (line) =>
+        line.trim() !== '' && !line.startsWith('refs/remotes/origin/HEAD\t')
+    )
+    .map((line) => {
+      const [, name = '', author = ''] = line.split('\t')
+      return { name, author }
+    })
+}
+
 export async function getMergeBase(params: {
   ref: string
   cwd?: string
@@ -88,21 +160,26 @@ export async function getUpstreamBranch(params: {
 export async function listCommits(params: {
   cwd?: string
 }): Promise<{ sha: string; title: string }[]> {
-  const { stdout } = await execFileAsync(
-    'git',
-    ['log', '--oneline', '-n', '20', '--format=%h %s'],
-    { cwd: params.cwd }
-  )
-  return stdout
-    .split('\n')
-    .filter((line) => line.trim() !== '')
-    .map((line) => {
-      const spaceIndex = line.indexOf(' ')
-      return {
-        sha: line.slice(0, spaceIndex),
-        title: line.slice(spaceIndex + 1),
-      }
-    })
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['log', '--oneline', '-n', '20', '--format=%h %s'],
+      { cwd: params.cwd }
+    )
+    return stdout
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+      .map((line) => {
+        const spaceIndex = line.indexOf(' ')
+        return {
+          sha: line.slice(0, spaceIndex),
+          title: line.slice(spaceIndex + 1),
+        }
+      })
+  } catch {
+    // ponytail: unborn HEAD has no log; other git failures surface later in the flow
+    return []
+  }
 }
 
 // --- Reviewer subprocess commands ---

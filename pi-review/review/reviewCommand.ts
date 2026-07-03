@@ -3,6 +3,8 @@ import { formatReviewForContext } from '../review-output/formatReviewForContext'
 import type { ReviewOutput } from '../review-output/reviewOutputSchema'
 import { runReviewSession } from '../review-session/runReviewSession'
 import { pickTarget } from './pickTarget'
+import type { ReviewFormData } from './prepareReviewForm'
+import type { ReviewFormResult } from './ReviewForm'
 import { renderTaskPrompt } from './renderTaskPrompt'
 import { resolveTarget } from './resolveTarget'
 import { selectReviewModel } from './selectReviewModel'
@@ -20,8 +22,9 @@ type ReviewCommandParams = {
   currentModelId: string | undefined
   availableModelIds: string[]
   hasUI: boolean
-  select: (title: string, options: string[]) => Promise<string | undefined>
-  input: (title: string, placeholder?: string) => Promise<string | undefined>
+  showReviewForm: (
+    form: ReviewFormData
+  ) => Promise<ReviewFormResult | 'fetch' | undefined>
   notify: (message: string, level: 'info' | 'warning' | 'error') => void
   runWithCancellableLoader: <T>(args: {
     description: string
@@ -52,12 +55,30 @@ export async function reviewCommand(
     )
   }
 
-  const target = await deps.pickTarget(params)
-  if (target === 'cancelled') {
+  const modelConfig =
+    typeof config.model === 'string'
+      ? { chooseFrom: [config.model] }
+      : config.model
+
+  const picked = await deps.pickTarget({
+    args: params.args,
+    cwd: params.cwd,
+    hasUI: params.hasUI,
+    currentModelId: params.currentModelId,
+    availableModelIds: params.availableModelIds,
+    modelConfig,
+    notify: params.notify,
+    runWithCancellableLoader: params.runWithCancellableLoader,
+    showReviewForm: params.showReviewForm,
+  })
+  if (picked === 'cancelled') {
     return { cancelled: true }
   }
 
-  const reviewTarget = await deps.resolveTarget({ target, cwd: params.cwd })
+  const reviewTarget = await deps.resolveTarget({
+    target: picked.target,
+    cwd: params.cwd,
+  })
 
   const taskPrompt = renderTaskPrompt({
     target: reviewTarget,
@@ -65,14 +86,12 @@ export async function reviewCommand(
   })
 
   const modelId =
-    typeof config.model === 'string'
-      ? config.model
-      : selectReviewModel({
-          modelConfig:
-            typeof config.model === 'object' ? config.model : undefined,
-          currentModelId: params.currentModelId,
-          availableModelIds: params.availableModelIds,
-        })
+    picked.modelId ??
+    selectReviewModel({
+      modelConfig,
+      currentModelId: params.currentModelId,
+      availableModelIds: params.availableModelIds,
+    })
 
   const runSession = (runArgs: { signal?: AbortSignal }) =>
     deps.runReviewSession({

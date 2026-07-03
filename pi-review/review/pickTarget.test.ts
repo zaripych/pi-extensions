@@ -1,199 +1,136 @@
 import { combineHarnesses } from 'foundation/testing/harness/combineHarnesses'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { setupPickTarget } from './pickTarget.harness'
 
 const setup = combineHarnesses(setupPickTarget)
 
-const noopSelect = async () => undefined
-const noopInput = async () => undefined
+function passthroughLoader<T>({
+  run,
+}: {
+  description: string
+  run: (runArgs: { signal: AbortSignal }) => Promise<T>
+}) {
+  return run({ signal: new AbortController().signal })
+}
+
+function pickTargetParams() {
+  return {
+    args: '',
+    cwd: '/test/project',
+    hasUI: true,
+    currentModelId: 'anthropic/claude-sonnet-4-20250514',
+    availableModelIds: ['anthropic/claude-sonnet-4-20250514', 'openai/gpt-4o'],
+    modelConfig: undefined,
+    notify: vi.fn(),
+    runWithCancellableLoader: passthroughLoader,
+    showReviewForm: async () => undefined,
+  }
+}
 
 describe('pickTarget', () => {
   it('returns uncommitted target when no args and no UI', async () => {
     await using harness = await setup()
 
-    const target = await harness.pickTarget({
-      cwd: '/test/project',
-      args: '',
+    const result = await harness.pickTarget({
+      ...pickTargetParams(),
       hasUI: false,
-      select: noopSelect,
-      input: noopInput,
     })
 
-    expect(target).toEqual({ type: 'uncommitted' })
+    expect(result).toEqual({ target: { type: 'uncommitted' } })
   })
 
   it('returns custom target when args are provided', async () => {
     await using harness = await setup()
 
-    const target = await harness.pickTarget({
-      cwd: '/test/project',
+    const result = await harness.pickTarget({
+      ...pickTargetParams(),
       args: 'check for regressions',
-      hasUI: true,
-      select: noopSelect,
-      input: noopInput,
     })
 
-    expect(target).toEqual({
-      type: 'custom',
-      instructions: 'check for regressions',
+    expect(result).toEqual({
+      target: { type: 'custom', instructions: 'check for regressions' },
     })
   })
 
-  it('returns uncommitted when selected from picker', async () => {
+  it('shows the prepared form and returns its selection', async () => {
     await using harness = await setup()
 
-    const target = await harness.pickTarget({
-      cwd: '/test/project',
-      args: '',
-      hasUI: true,
-      select: async () => 'Review uncommitted changes',
-      input: noopInput,
+    const showReviewForm = vi.fn(async () => ({
+      target: { type: 'baseBranch' as const, branch: 'origin/main' },
+      modelId: 'openai/gpt-4o',
+    }))
+    const result = await harness.pickTarget({
+      ...pickTargetParams(),
+      showReviewForm,
     })
 
-    expect(target).toEqual({ type: 'uncommitted' })
+    expect(showReviewForm).toHaveBeenCalledWith(
+      expect.objectContaining({ defaultTarget: expect.any(String) })
+    )
+    expect(result).toEqual({
+      target: { type: 'baseBranch', branch: 'origin/main' },
+      modelId: 'openai/gpt-4o',
+    })
   })
 
-  it('returns cancelled when user cancels the target picker', async () => {
+  it('refetches and reopens the form when Fetch origin is chosen', async () => {
     await using harness = await setup()
 
-    const target = await harness.pickTarget({
-      cwd: '/test/project',
-      args: '',
-      hasUI: true,
-      select: async () => undefined,
-      input: noopInput,
+    const selection = {
+      target: { type: 'baseBranch' as const, branch: 'origin/main' },
+      modelId: 'openai/gpt-4o',
+    }
+    const showReviewForm = vi
+      .fn()
+      .mockResolvedValueOnce('fetch')
+      .mockResolvedValueOnce(selection)
+    const result = await harness.pickTarget({
+      ...pickTargetParams(),
+      showReviewForm,
     })
 
-    expect(target).toBe('cancelled')
+    expect(harness.prepareReviewForm).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ fetch: false })
+    )
+    expect(harness.prepareReviewForm).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ fetch: true })
+    )
+    expect(showReviewForm).toHaveBeenCalledTimes(2)
+    expect(result).toEqual(selection)
   })
 
-  it('runs branch picker when user selects base branch review', async () => {
-    await using harness = await setup({
-      listBranches: async () => ['main', 'develop', 'feature/foo'],
-    })
-
-    const target = await harness.pickTarget({
-      cwd: '/test/project',
-      args: '',
-      hasUI: true,
-      select: async (_title: string, options: string[]) => {
-        if (options.includes('Review against a base branch')) {
-          return 'Review against a base branch'
-        }
-        if (options.includes('main')) {
-          return 'main'
-        }
-        throw new Error('Unexpected select options')
-      },
-      input: noopInput,
-    })
-
-    expect(target).toEqual({ type: 'baseBranch', branch: 'main' })
-  })
-
-  it('runs commit picker when user selects commit review', async () => {
-    await using harness = await setup({
-      listCommits: async () => [
-        { sha: 'abc1234', title: 'fix: handle empty input' },
-        { sha: 'def5678', title: 'feat: add login' },
-      ],
-    })
-
-    const target = await harness.pickTarget({
-      cwd: '/test/project',
-      args: '',
-      hasUI: true,
-      select: async (_title: string, options: string[]) => {
-        if (options.includes('Review a commit')) return 'Review a commit'
-        if (options.includes('abc1234 fix: handle empty input')) {
-          return 'abc1234 fix: handle empty input'
-        }
-        throw new Error('Unexpected select options')
-      },
-      input: noopInput,
-    })
-
-    expect(target).toEqual({
-      type: 'commit',
-      sha: 'abc1234',
-      title: 'fix: handle empty input',
-    })
-  })
-
-  it('shows text input when user selects custom review', async () => {
+  it('returns cancelled when the form is dismissed', async () => {
     await using harness = await setup()
 
-    const target = await harness.pickTarget({
-      cwd: '/test/project',
-      args: '',
-      hasUI: true,
-      select: async () => 'Custom review instructions',
-      input: async () => 'check error handling paths',
+    const result = await harness.pickTarget({
+      ...pickTargetParams(),
+      showReviewForm: async () => undefined,
     })
 
-    expect(target).toEqual({
-      type: 'custom',
-      instructions: 'check error handling paths',
-    })
+    expect(result).toBe('cancelled')
   })
 
-  it('returns cancelled when user cancels branch picker', async () => {
+  it('notifies a warning when fetching origin fails', async () => {
     await using harness = await setup({
-      listBranches: async () => ['main'],
-    })
-
-    const target = await harness.pickTarget({
-      cwd: '/test/project',
-      args: '',
-      hasUI: true,
-      select: async (_title: string, options: string[]) => {
-        if (options.includes('Review against a base branch')) {
-          return 'Review against a base branch'
-        }
-        if (options.includes('main')) {
-          return undefined
-        }
-        throw new Error('Unexpected select options')
+      fetchOrigin: async () => {
+        throw new Error('could not resolve host')
       },
-      input: noopInput,
     })
 
-    expect(target).toBe('cancelled')
-  })
+    const params = {
+      ...pickTargetParams(),
+      showReviewForm: vi
+        .fn()
+        .mockResolvedValueOnce('fetch')
+        .mockResolvedValueOnce(undefined),
+    }
+    await harness.pickTarget(params)
 
-  it('returns cancelled when user cancels commit picker', async () => {
-    await using harness = await setup({
-      listCommits: async () => [{ sha: 'abc1234', title: 'some commit' }],
-    })
-
-    const target = await harness.pickTarget({
-      cwd: '/test/project',
-      args: '',
-      hasUI: true,
-      select: async (_title: string, options: string[]) => {
-        if (options.includes('Review a commit')) return 'Review a commit'
-        if (options.includes('abc1234 some commit')) {
-          return undefined
-        }
-        throw new Error('Unexpected select options')
-      },
-      input: noopInput,
-    })
-
-    expect(target).toBe('cancelled')
-  })
-
-  it('returns cancelled when user cancels custom input', async () => {
-    await using harness = await setup()
-
-    const target = await harness.pickTarget({
-      cwd: '/test/project',
-      args: '',
-      hasUI: true,
-      select: async () => 'Custom review instructions',
-      input: async () => undefined,
-    })
-
-    expect(target).toBe('cancelled')
+    expect(params.notify).toHaveBeenCalledWith(
+      expect.stringContaining('could not resolve host'),
+      'warning'
+    )
   })
 })

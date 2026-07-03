@@ -19,12 +19,7 @@ function reviewCommandParams(params: { args: string; hasUI: boolean }) {
     cwd: '/test/project',
     currentModelId: 'anthropic/claude-sonnet-4-20250514',
     availableModelIds: ['anthropic/claude-sonnet-4-20250514', 'openai/gpt-4o'],
-    select: async () => {
-      throw new Error('Unexpected select call')
-    },
-    input: async () => {
-      throw new Error('Unexpected input call')
-    },
+    showReviewForm: async () => undefined,
     notify: vi.fn(),
     runWithCancellableLoader: passthroughLoader,
     sendMessage: vi.fn(async () => {}),
@@ -32,6 +27,21 @@ function reviewCommandParams(params: { args: string; hasUI: boolean }) {
 }
 
 describe('reviewCommand', () => {
+  it('uses the model selected in the review form for the session', async () => {
+    await using harness = await setup({
+      pickTarget: async () => ({
+        target: { type: 'uncommitted' as const },
+        modelId: 'openai/gpt-4o',
+      }),
+    })
+
+    await harness.reviewCommand(reviewCommandParams({ args: '', hasUI: true }))
+
+    expect(harness.runReviewSession).toHaveBeenCalledWith(
+      expect.objectContaining({ modelId: 'openai/gpt-4o' })
+    )
+  })
+
   it('cancelled selection returns cancelled', async () => {
     await using harness = await setup({
       pickTarget: async () => 'cancelled',
@@ -100,15 +110,10 @@ describe('reviewCommand', () => {
         'openai/gpt-4o',
       ],
       hasUI: true,
-      select: async (_title: string, options: string[]) => {
-        if (options.includes('Review against a base branch')) {
-          return 'Review against a base branch'
-        }
-        return 'main'
-      },
-      input: async () => {
-        throw new Error('Unexpected input call')
-      },
+      showReviewForm: async () => ({
+        target: { type: 'baseBranch' as const, branch: 'main' },
+        modelId: 'openai/gpt-4o',
+      }),
       notify: vi.fn(),
       runWithCancellableLoader: passthroughLoader,
       sendMessage: vi.fn(async () => {}),
@@ -150,7 +155,7 @@ describe('reviewCommand', () => {
 
   it('skips loader when hasUI is false', async () => {
     await using harness = await setup({
-      pickTarget: async () => ({ type: 'uncommitted' as const }),
+      pickTarget: async () => ({ target: { type: 'uncommitted' as const } }),
     })
 
     let loaderCalled = false
@@ -173,7 +178,7 @@ describe('reviewCommand', () => {
 
   it('notifies with config error before running review', async () => {
     await using harness = await setup({
-      pickTarget: async () => ({ type: 'uncommitted' as const }),
+      pickTarget: async () => ({ target: { type: 'uncommitted' as const } }),
       loadConfig: async () => ({
         config: {
           tools: ['read'],
@@ -208,7 +213,7 @@ describe('reviewCommand', () => {
 
   it('notifies with error when review session returns no output', async () => {
     await using harness = await setup({
-      pickTarget: async () => ({ type: 'uncommitted' as const }),
+      pickTarget: async () => ({ target: { type: 'uncommitted' as const } }),
       runReviewSession: async () => ({
         error: 'An error occurred while processing your request.',
       }),
@@ -231,7 +236,7 @@ describe('reviewCommand', () => {
 
   it('cancelled review session returns cancelled without sending a review message', async () => {
     await using harness = await setup({
-      pickTarget: async () => ({ type: 'uncommitted' as const }),
+      pickTarget: async () => ({ target: { type: 'uncommitted' as const } }),
       runReviewSession: async () => ({ cancelled: true as const }),
     })
 

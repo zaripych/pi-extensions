@@ -1,4 +1,5 @@
-import { listBranches, listCommits } from '../git/commands'
+import { prepareReviewForm, type ReviewFormData } from './prepareReviewForm'
+import type { ReviewFormResult } from './ReviewForm'
 
 export type TargetSelection =
   | { type: 'uncommitted' }
@@ -7,67 +8,66 @@ export type TargetSelection =
   | { type: 'custom'; instructions: string }
 
 const defaultDeps = {
-  listBranches,
-  listCommits,
+  prepareReviewForm,
 }
 
 export interface PickTargetParams {
   args: string
   cwd: string
   hasUI: boolean
-  select: (title: string, options: string[]) => Promise<string | undefined>
-  input: (title: string, placeholder?: string) => Promise<string | undefined>
+  currentModelId: string | undefined
+  availableModelIds: string[]
+  modelConfig: { chooseFrom: string[] } | undefined
+  notify: (message: string, level: 'info' | 'warning' | 'error') => void
+  runWithCancellableLoader: <T>(args: {
+    description: string
+    run: (runArgs: { signal: AbortSignal }) => Promise<T>
+  }) => Promise<T>
+  showReviewForm: (
+    form: ReviewFormData
+  ) => Promise<ReviewFormResult | 'fetch' | undefined>
 }
-
-const TARGET_OPTIONS = [
-  'Review uncommitted changes',
-  'Review against a base branch',
-  'Review a commit',
-  'Custom review instructions',
-] as const
 
 export async function pickTarget(
   params: PickTargetParams,
   deps = defaultDeps
-): Promise<TargetSelection | 'cancelled'> {
+): Promise<{ target: TargetSelection; modelId?: string } | 'cancelled'> {
   if (params.args !== '') {
-    return { type: 'custom', instructions: params.args }
+    return { target: { type: 'custom', instructions: params.args } }
   }
 
   if (!params.hasUI) {
-    return { type: 'uncommitted' }
+    return { target: { type: 'uncommitted' } }
   }
 
-  const choice = await params.select('Review target', [...TARGET_OPTIONS])
+  let fetch = false
+  for (;;) {
+    // ponytail: loader signal not wired into git fetch, esc waits for fetch to finish; pass signal to fetchOrigin if it matters
+    const form = await params.runWithCancellableLoader({
+      description: fetch ? 'Fetching origin...' : 'Preparing review...',
+      run: () =>
+        deps.prepareReviewForm({
+          cwd: params.cwd,
+          currentModelId: params.currentModelId,
+          availableModelIds: params.availableModelIds,
+          modelConfig: params.modelConfig,
+          fetch,
+        }),
+    })
 
-  switch (choice) {
-    case 'Review uncommitted changes':
-      return { type: 'uncommitted' }
-    case 'Review against a base branch': {
-      const branches = await deps.listBranches({ cwd: params.cwd })
-      const branch = await params.select('Select branch', branches)
-      if (!branch) return 'cancelled'
-      return { type: 'baseBranch', branch }
+    if (form.fetchWarning !== undefined) {
+      params.notify(form.fetchWarning, 'warning')
     }
-    case 'Review a commit': {
-      const commits = await deps.listCommits({ cwd: params.cwd })
-      const labels = commits.map((c) => `${c.sha} ${c.title}`)
-      const selected = await params.select('Select commit', labels)
-      if (!selected) return 'cancelled'
-      const commit = commits.find((c) => `${c.sha} ${c.title}` === selected)
-      if (!commit) return 'cancelled'
-      return { type: 'commit', sha: commit.sha, title: commit.title }
-    }
-    case 'Custom review instructions': {
-      const instructions = await params.input(
-        'Review instructions',
-        'Describe what to review...'
-      )
-      if (!instructions) return 'cancelled'
-      return { type: 'custom', instructions }
-    }
-    default:
+
+    const result = await params.showReviewForm(form)
+    if (result === undefined) {
       return 'cancelled'
+    }
+    if (result === 'fetch') {
+      fetch = true
+      continue
+    }
+    return result
   }
 }
 

@@ -3,7 +3,12 @@ import { configureDependencies } from 'foundation/testing/harness/configureDepen
 import { configureHarnesses } from 'foundation/testing/harness/configureHarnesses'
 import { setupTmpDir } from '../testing/setupTmpDir'
 import {
+  fetchOrigin,
+  getCurrentBranch,
+  getDefaultBranch,
   getMergeBase,
+  hasUncommittedChanges,
+  listBranchesWithAuthors,
   getUpstreamBranch,
   gitDiff,
   gitDiffCached,
@@ -15,7 +20,12 @@ import {
 } from './commands'
 
 const defaultDeps = {
+  fetchOrigin,
+  getCurrentBranch,
+  getDefaultBranch,
+  hasUncommittedChanges,
   listBranches,
+  listBranchesWithAuthors,
   listCommits,
   getMergeBase,
   getUpstreamBranch,
@@ -35,7 +45,15 @@ export const setupGitCommands = configureHarnesses(
     const deps = configureDependencies(
       { inferTypesFrom: { defaultDeps }, userDeps },
       {
+        fetchOrigin: async () => {},
+        getCurrentBranch: async () => faker.git.branch(),
+        getDefaultBranch: async () =>
+          faker.helpers.arrayElement(['main', 'master']),
+        hasUncommittedChanges: async () => faker.datatype.boolean(),
         listBranches: async () => [],
+        listBranchesWithAuthors: async () => [
+          { name: faker.git.branch(), author: faker.person.fullName() },
+        ],
         listCommits: async () => [],
         getMergeBase: async () => faker.git.commitSha({ length: 7 }),
         getUpstreamBranch: async () => `origin/${faker.git.branch()}`,
