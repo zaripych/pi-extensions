@@ -68,9 +68,9 @@ export function withDeps<P, D, R>(
 
 export function withDeps(fn: AnyFunction, deps: unknown): AnyFunction {
   assertDepsParam(fn)
-  // biome-ignore-start lint/plugin/no-type-assertions: implementation signature bridges overloads — callers are type-checked by the overload signatures above
+  // oxlint-disable typescript/consistent-type-assertions -- implementation signature bridges overloads — callers are type-checked by the overload signatures above
   const call = fn as (...args: unknown[]) => unknown
-  // biome-ignore-end lint/plugin/no-type-assertions: end
+  // oxlint-enable typescript/consistent-type-assertions
   if (fn.length === 0) {
     return () => call(deps)
   }

@@ -99,9 +99,9 @@ the issue. Use `as T` on the return and suppress the lint rule with an
 explanation.
 
 ```ts
-// biome-ignore-start lint/plugin/no-type-assertions: dynamically constructed return cannot be proven to match T
+// oxlint-disable typescript/consistent-type-assertions -- dynamically constructed return cannot be proven to match T
 return merged as T
-// biome-ignore-end lint/plugin/no-type-assertions: end
+// oxlint-enable typescript/consistent-type-assertions
 ```
 
 This is a last resort. The assertion must stay on the return statement inside
@@ -109,13 +109,12 @@ the helper, never at call sites.
 
 ## Suppressing the lint rule
 
-Use the range suppression format. Single-line `biome-ignore lint:` does not
-reliably suppress plugin rules across formatting.
+Use the range suppression format so the suppression survives reformatting.
 
 ```ts
-// biome-ignore-start lint/plugin/no-type-assertions: reason
+// oxlint-disable typescript/consistent-type-assertions -- reason
 ...
-// biome-ignore-end lint/plugin/no-type-assertions: end
+// oxlint-enable typescript/consistent-type-assertions
 ```
 
-Both comments require a reason after the colon.
+The disable comment requires a reason after the `--` separator.

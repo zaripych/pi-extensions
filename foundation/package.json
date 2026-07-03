@@ -7,19 +7,22 @@
   },
   "scripts": {
     "format": "prettier --write -u .",
-    "lint": "biome check --config-path ./biome.config.json .",
+    "lint": "oxlint --type-aware",
     "lint-changed": "lint-staged --diff HEAD",
     "lint-staged": "lint-staged --hide-all",
     "prepare": "[ -d .git ] && husky || true",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit --pretty",
-    "verify": "npm run typecheck && npm run lint && npm run test -- --changed"
+    "test-changed": "vitest run --changed",
+    "typecheck": "tsgo --noEmit --pretty",
+    "verify": "pnpm run \"/^(typecheck|lint|test-changed)$/\""
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.1",
+    "@typescript/native-preview": "7.0.0-dev.20260701.1",
     "expect-type": "1.3.0",
     "husky": "9.1.7",
     "lint-staged": "17.0.8",
+    "oxlint": "1.71.0",
+    "oxlint-tsgolint": "^0.24.0",
     "prettier": "3.8.4",
     "sort-package-json": "4.0.0",
     "typescript": "6.0.3",

@@ -9,9 +9,9 @@ export function isCallable(
 export function wrapOnce<T extends (...args: never[]) => unknown>(
   fn: T
 ): Mock | T {
-  // biome-ignore-start lint/plugin/no-type-assertions: vi.fn requires a wider function type than the constrained T
+  // oxlint-disable typescript/consistent-type-assertions -- vi.fn requires a wider function type than the constrained T
   return vi.isMockFunction(fn)
     ? fn
     : vi.fn(fn as unknown as (...args: unknown[]) => unknown)
-  // biome-ignore-end lint/plugin/no-type-assertions: end
+  // oxlint-enable typescript/consistent-type-assertions
 }

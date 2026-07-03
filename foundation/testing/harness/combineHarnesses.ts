@@ -18,9 +18,9 @@ function wrapFunctionProperties<T extends Record<string, unknown>>(
     wrapped[key] = isCallable(value) ? wrapOnce(value) : value
   }
 
-  // biome-ignore-start lint/plugin/no-type-assertions: dynamically constructed return cannot be proven to match T
+  // oxlint-disable typescript/consistent-type-assertions -- dynamically constructed return cannot be proven to match T
   return wrapped as T
-  // biome-ignore-end lint/plugin/no-type-assertions: end
+  // oxlint-enable typescript/consistent-type-assertions
 }
 
 function isAsyncDisposable(value: unknown): value is AsyncDisposable {
@@ -63,9 +63,9 @@ export function combineHarnesses<const Harnesses extends AnyHarness[]>(
 
     for (const harness of harnesses) {
       const input = { ...accumulated, ...wrappedOverrides }
-      // biome-ignore-start lint/plugin/no-type-assertions: accumulated input and harness return are dynamically constructed
+      // oxlint-disable typescript/consistent-type-assertions -- accumulated input and harness return are dynamically constructed
       const result = (await harness(input as never)) as Record<string, unknown>
-      // biome-ignore-end lint/plugin/no-type-assertions: end
+      // oxlint-enable typescript/consistent-type-assertions
 
       if (isAsyncDisposable(result)) {
         const dispose = result[Symbol.asyncDispose].bind(result)
@@ -84,13 +84,13 @@ export function combineHarnesses<const Harnesses extends AnyHarness[]>(
       ...wrappedOverrides,
     }
 
-    // biome-ignore-start lint/plugin/no-type-assertions: merged result is dynamically constructed from accumulated harness outputs
+    // oxlint-disable typescript/consistent-type-assertions -- merged result is dynamically constructed from accumulated harness outputs
     return {
       ...merged,
       async [Symbol.asyncDispose]() {
         await stack[Symbol.asyncDispose]()
       },
     } as unknown as Result
-    // biome-ignore-end lint/plugin/no-type-assertions: end
+    // oxlint-enable typescript/consistent-type-assertions
   }
 }

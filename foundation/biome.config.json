@@ -1,7 +1,0 @@
-{
-  "extends": ["./biome.common.json"],
-  "plugins": [
-    "./rules/no-type-assertions.grit",
-    "./rules/no-angle-type-assertions.grit"
-  ]
-}

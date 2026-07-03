@@ -1,0 +1,102 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "typescript",
+    "unicorn",
+    "oxc",
+    "import",
+    "promise",
+    "node",
+    "vitest"
+  ],
+  "categories": {
+    "correctness": "error"
+  },
+  "ignorePatterns": ["**/dist", "**/coverage"],
+  "rules": {
+    "no-unused-vars": [
+      "error",
+      {
+        "ignoreRestSiblings": true,
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_"
+      }
+    ],
+    // Generates false positives on legitimate promise-to-callback bridges and has low value.
+    "promise/no-callback-in-promise": "off",
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "fs",
+            "message": "Use node:fs/promises instead of sync filesystem APIs."
+          },
+          {
+            "name": "node:fs",
+            "message": "Use node:fs/promises instead of sync filesystem APIs."
+          }
+        ]
+      }
+    ],
+    "eqeqeq": "error",
+    "array-callback-return": "error",
+    "no-self-compare": "error",
+    "no-constructor-return": "error",
+    "no-template-curly-in-string": "error",
+    "no-throw-literal": "error",
+    "no-param-reassign": "error",
+    "no-shadow": "error",
+    "no-promise-executor-return": "error",
+    "unicorn/no-array-sort": "error",
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/await-thenable": "error",
+    "typescript/switch-exhaustiveness-check": [
+      "error",
+      { "considerDefaultExhaustiveForUnions": true }
+    ],
+    // Harness deps spread strips the UserDepsMarkBrand declare-class brand by design,
+    // which this rule misreads as losing a real class prototype.
+    "typescript/no-misused-spread": "off",
+    "typescript/no-explicit-any": "error",
+    "typescript/no-non-null-assertion": "error",
+    "typescript/ban-ts-comment": "error",
+    "typescript/consistent-type-imports": "error",
+    "typescript/consistent-type-assertions": [
+      "error",
+      { "assertionStyle": "never" }
+    ],
+    "import/no-cycle": "error",
+    "import/no-commonjs": "error",
+    "import/no-default-export": "error",
+    "import/no-namespace": "error",
+    "oxc/no-barrel-file": "error",
+    "unicorn/prefer-node-protocol": "error",
+    "vitest/no-focused-tests": "error",
+    "vitest/no-disabled-tests": "error",
+    "vitest/no-conditional-expect": "error",
+    "vitest/no-identical-title": "error",
+    "vitest/no-duplicate-hooks": "error",
+    "vitest/no-standalone-expect": "error",
+    "vitest/expect-expect": "error",
+    // Harness mocks infer their types from defaultDeps, so explicit vi.fn type parameters add nothing.
+    "vitest/require-mock-type-parameters": "off",
+    "vitest/require-to-throw-message": "error"
+  },
+  "overrides": [
+    {
+      "files": [
+        "**/index.ts",
+        "**/vitest.config.*",
+        "**/.prettierrc.*",
+        "**/lint-staged.config.*"
+      ],
+      "rules": {
+        // Extension entry points and tool config files require default exports by convention.
+        "import/no-default-export": "off"
+      }
+    }
+  ]
+}

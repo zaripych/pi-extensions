@@ -47,11 +47,11 @@ export function configureDependencies<
   params: Params,
   configurators: Configurators<DepsFromParams<Params>>
 ): MockedDeps<DepsFromParams<Params>> {
-  // biome-ignore-start lint/plugin/no-type-assertions: stripping UserDepsMarkBrand declared in types.ts
+  // oxlint-disable typescript/consistent-type-assertions -- stripping UserDepsMarkBrand declared in types.ts
   const userDeps = params.userDeps as
     | Partial<Record<string, unknown>>
     | undefined
-  // biome-ignore-end lint/plugin/no-type-assertions: end
+  // oxlint-enable typescript/consistent-type-assertions
   const userFunctionKeys = Object.keys(userDeps ?? {}).filter(
     (key) => typeof userDeps?.[key] === 'function'
   )
@@ -67,14 +67,14 @@ export function configureDependencies<
       result[key] = isCallable(value) ? wrapOnce(value) : value
     } else {
       const configurator =
-        // biome-ignore-start lint/plugin/no-type-assertions: dynamic key access into generic Configurators type
+        // oxlint-disable typescript/consistent-type-assertions -- dynamic key access into generic Configurators type
         (configurators as Record<string, AnyFunction | undefined>)[key]
-      // biome-ignore-end lint/plugin/no-type-assertions: end
+      // oxlint-enable typescript/consistent-type-assertions
       result[key] = configurator ? wrapOnce(configurator) : vi.fn<AnyFunction>()
     }
   }
 
-  // biome-ignore-start lint/plugin/no-type-assertions: dynamically constructed return cannot be proven to match generic MockedDeps
+  // oxlint-disable typescript/consistent-type-assertions -- dynamically constructed return cannot be proven to match generic MockedDeps
   return result as MockedDeps<DepsFromParams<Params>>
-  // biome-ignore-end lint/plugin/no-type-assertions: end
+  // oxlint-enable typescript/consistent-type-assertions
 }

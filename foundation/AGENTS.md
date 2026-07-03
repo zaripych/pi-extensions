@@ -11,14 +11,14 @@ Load and respect @AGENTS.local.md contents and instructions if it exists.
 Before shipping, run the full verification suite:
 
 ```sh
-npm run verify
+pnpm run verify
 ```
 
-This runs, in order:
+This runs in parallel, bailing on the first failure:
 
-1. `npm run typecheck` — TypeScript type checking (`tsc --noEmit`)
-2. `npm run lint` — Biome linting/format checks
-3. `npm run test -- --changed` — Vitest tests on changed files only
+1. `pnpm run typecheck` — TypeScript type checking (`tsgo --noEmit`)
+2. `pnpm run lint` — Oxlint checks
+3. `pnpm run test-changed` — Vitest tests on changed files only
 
 You can also run each step individually.
 

@@ -3,9 +3,9 @@ const allJs = '*.(js|ts|mjs|mts|tsx)'
 export default {
   [`!(${allJs})`]: 'prettier --write -u',
   [allJs]: [
-    `biome check --config-path ./biome.config.json --write --unsafe`,
+    'oxlint --fix',
     'prettier --write -u',
+    () => 'tsgo --noEmit --pretty',
   ],
-  [allJs]: () => 'tsc --noEmit --pretty',
   'package.json': () => 'npm exec sort-package-json',
 }
