@@ -36,10 +36,7 @@
     "build": "echo 'nothing to build'",
     "check": "echo 'nothing to check'"
   },
-  "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.80.2"
-  },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "0.80.2"
+    "@earendil-works/pi-coding-agent": "*"
   }
 }

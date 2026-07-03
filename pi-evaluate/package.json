@@ -29,8 +29,8 @@
     "vitest": "4.1.9"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "0.80.2",
-    "@earendil-works/pi-coding-agent": "0.80.2",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
     "fast-glob": "^3.3.3",
     "yaml": "^2.9.0",
     "yargs": "^18.0.0",

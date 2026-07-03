@@ -2,6 +2,9 @@ packages:
   - ./*
 overrides:
   vite: 8.1.0
+  '@earendil-works/pi-ai': '$@earendil-works/pi-ai'
+  '@earendil-works/pi-coding-agent': '$@earendil-works/pi-coding-agent'
+  '@earendil-works/pi-tui': '$@earendil-works/pi-tui'
 allowBuilds:
   '@google/genai': true
   esbuild: true
