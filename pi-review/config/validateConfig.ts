@@ -1,5 +1,4 @@
 import { prettifyError, z } from 'zod'
-import { defaultPrompts } from './defaults'
 
 const RESERVED_TOOL_NAMES = ['reviewer-git', 'finish-review']
 
@@ -10,26 +9,6 @@ const modelChooseFromSchema = z.object({
 const modelSchema = z.union([z.string(), modelChooseFromSchema], {
   error:
     'must be a model string (e.g. "provider/model-id") or { chooseFrom: ["model1", "model2", ...] }',
-})
-
-const reviewPromptsSchema = z.object({
-  uncommitted: z
-    .string()
-    .min(1)
-    .describe('Prompt for reviewing uncommitted changes.'),
-  baseBranch: z
-    .string()
-    .min(1)
-    .describe('Prompt for reviewing against a base branch.'),
-  baseBranchFallback: z
-    .string()
-    .min(1)
-    .describe('Prompt for reviewing against an upstream branch.'),
-  commit: z.string().min(1).describe('Prompt for reviewing a specific commit.'),
-  commitNoTitle: z
-    .string()
-    .min(1)
-    .describe('Prompt for reviewing a commit without a title.'),
 })
 
 export const reviewConfigSchema = z.object({
@@ -57,12 +36,6 @@ export const reviewConfigSchema = z.object({
     .describe(
       'Path to the system prompt file, relative to the config directory.'
     ),
-  prompts: reviewPromptsSchema
-    .partial()
-    .optional()
-    .describe(
-      'Override individual review task prompts. Omit to use built-in defaults.'
-    ),
   thresholds: z
     .object({
       minConfidence: z
@@ -86,26 +59,9 @@ export const reviewConfigSchema = z.object({
     .describe('Thresholds for filtering review findings.'),
 })
 
-type RawReviewConfig = z.infer<typeof reviewConfigSchema>
-
-export type ReviewConfig = Omit<RawReviewConfig, 'prompts'> & {
-  prompts: z.infer<typeof reviewPromptsSchema>
-}
+export type ReviewConfig = z.infer<typeof reviewConfigSchema>
 
 export const defaultReviewConfig: ReviewConfig = validateConfig({})
-
-function mergePrompts(
-  prompts: RawReviewConfig['prompts']
-): ReviewConfig['prompts'] {
-  return {
-    uncommitted: prompts?.uncommitted ?? defaultPrompts.uncommitted,
-    baseBranch: prompts?.baseBranch ?? defaultPrompts.baseBranch,
-    baseBranchFallback:
-      prompts?.baseBranchFallback ?? defaultPrompts.baseBranchFallback,
-    commit: prompts?.commit ?? defaultPrompts.commit,
-    commitNoTitle: prompts?.commitNoTitle ?? defaultPrompts.commitNoTitle,
-  }
-}
 
 export function validateConfig(raw: unknown): ReviewConfig {
   const result = reviewConfigSchema.safeParse(raw ?? {})
@@ -113,8 +69,5 @@ export function validateConfig(raw: unknown): ReviewConfig {
     throw new Error(`Invalid review config:\n${prettifyError(result.error)}`)
   }
 
-  return {
-    ...result.data,
-    prompts: mergePrompts(result.data.prompts),
-  }
+  return result.data
 }

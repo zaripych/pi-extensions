@@ -80,10 +80,7 @@ export async function reviewCommand(
     cwd: params.cwd,
   })
 
-  const taskPrompt = renderTaskPrompt({
-    target: reviewTarget,
-    prompts: config.prompts,
-  })
+  const taskPrompt = renderTaskPrompt(reviewTarget)
 
   const modelId =
     picked.modelId ??

@@ -184,13 +184,6 @@ describe('reviewCommand', () => {
           tools: ['read'],
           systemPrompt: 'review-prompt.md',
           systemPromptContent: 'prompt',
-          prompts: {
-            uncommitted: 'review',
-            baseBranch: 'review',
-            baseBranchFallback: 'review',
-            commit: 'review',
-            commitNoTitle: 'review',
-          },
           thresholds: { minConfidence: 0, maxPriority: 3 },
         },
         configError:

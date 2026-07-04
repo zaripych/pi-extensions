@@ -82,8 +82,8 @@ describe('resolveTarget', () => {
     })
 
     expect(target).toEqual({
-      type: 'baseBranchFallback',
-      branch: 'main',
+      type: 'baseBranch',
+      baseBranch: 'main',
       upstreamBranch: 'origin/main',
       mergeBaseSha: 'fedcba9',
     })

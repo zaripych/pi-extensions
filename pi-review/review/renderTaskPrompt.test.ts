@@ -1,88 +1,64 @@
 import { describe, expect, it } from 'vitest'
-import { defaultReviewConfig } from '../config/validateConfig'
 import { renderTaskPrompt } from './renderTaskPrompt'
 
-const { prompts } = defaultReviewConfig
-
 describe('renderTaskPrompt', () => {
-  it('renders uncommitted prompt as-is', () => {
-    const result = renderTaskPrompt({
-      target: { type: 'uncommitted' },
-      prompts,
-    })
+  it('renders uncommitted prompt', () => {
+    const result = renderTaskPrompt({ type: 'uncommitted' })
 
-    expect(result).toBe(prompts.uncommitted)
+    expect(result).toContain('statusShort')
+    expect(result).toContain('diffCached')
   })
 
   it('renders custom target with verbatim instructions', () => {
     const result = renderTaskPrompt({
-      target: { type: 'custom', instructions: 'check error handling paths' },
-      prompts,
+      type: 'custom',
+      instructions: 'check error handling paths',
     })
 
     expect(result).toBe('check error handling paths')
   })
 
-  it('renders baseBranch prompt with variables replaced', () => {
+  it('renders baseBranch prompt with branch and merge base', () => {
     const result = renderTaskPrompt({
-      target: {
-        type: 'baseBranch',
-        baseBranch: 'main',
-        mergeBaseSha: 'abc1234',
-      },
-      prompts,
+      type: 'baseBranch',
+      baseBranch: 'main',
+      mergeBaseSha: 'abc1234',
     })
 
-    expect(result).toContain("'main'")
+    expect(result).toContain("the base branch 'main'")
     expect(result).toContain('abc1234')
-    expect(result).not.toContain('{{base_branch}}')
-    expect(result).not.toContain('{{merge_base_sha}}')
+    expect(result).not.toContain('upstream')
   })
 
-  it('renders baseBranchFallback prompt with variables replaced', () => {
+  it('renders baseBranch prompt via upstream when upstreamBranch is set', () => {
     const result = renderTaskPrompt({
-      target: {
-        type: 'baseBranchFallback',
-        branch: 'feature/login',
-        upstreamBranch: 'origin/feature/login',
-        mergeBaseSha: 'def5678',
-      },
-      prompts,
+      type: 'baseBranch',
+      baseBranch: 'feature/login',
+      upstreamBranch: 'origin/feature/login',
+      mergeBaseSha: 'def5678',
     })
 
-    expect(result).toContain("'feature/login'")
-    expect(result).toContain('origin/feature/login')
+    expect(result).toContain(
+      "'feature/login' via its upstream 'origin/feature/login'"
+    )
     expect(result).toContain('def5678')
-    expect(result).not.toContain('{{branch}}')
-    expect(result).not.toContain('{{upstream_branch}}')
-    expect(result).not.toContain('{{merge_base_sha}}')
+    expect(result).toContain('relative to origin/feature/login')
   })
 
-  it('renders commit prompt with sha and title replaced', () => {
+  it('renders commit prompt with sha and title', () => {
     const result = renderTaskPrompt({
-      target: {
-        type: 'commit',
-        sha: 'abc1234',
-        title: 'fix: handle empty input',
-      },
-      prompts,
+      type: 'commit',
+      sha: 'abc1234',
+      title: 'fix: handle empty input',
     })
 
-    expect(result).toContain('abc1234')
-    expect(result).toContain('fix: handle empty input')
-    expect(result).not.toContain('{{sha}}')
-    expect(result).not.toContain('{{title}}')
+    expect(result).toContain('commit abc1234 ("fix: handle empty input")')
   })
 
-  it('uses commitNoTitle prompt when title is absent', () => {
-    const result = renderTaskPrompt({
-      target: { type: 'commit', sha: 'def5678' },
-      prompts,
-    })
+  it('omits title when absent', () => {
+    const result = renderTaskPrompt({ type: 'commit', sha: 'def5678' })
 
-    expect(result).toContain('def5678')
-    expect(result).not.toContain('{{sha}}')
-    expect(result).not.toContain('{{title}}')
+    expect(result).toContain('commit def5678')
     expect(result).not.toContain('("')
   })
 })

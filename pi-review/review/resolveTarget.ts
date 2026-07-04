@@ -58,8 +58,8 @@ export async function resolveTarget(
         }
 
         return {
-          type: 'baseBranchFallback',
-          branch: target.branch,
+          type: 'baseBranch',
+          baseBranch: target.branch,
           upstreamBranch,
           mergeBaseSha,
         }

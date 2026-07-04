@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { defaultPrompts } from './defaults'
 import { defaultReviewConfig, validateConfig } from './validateConfig'
 
 type MutableConfig = Record<string, unknown> & {
@@ -17,7 +16,6 @@ describe('validateConfig', () => {
     expect(config).toEqual({
       tools: ['read', 'grep', 'find', 'ls'],
       systemPrompt: 'review-prompt.md',
-      prompts: defaultPrompts,
       thresholds: {
         minConfidence: 0.0,
         maxPriority: 3,
@@ -31,7 +29,6 @@ describe('validateConfig', () => {
     expect(config).toEqual({
       tools: ['read', 'grep', 'find', 'ls'],
       systemPrompt: 'review-prompt.md',
-      prompts: defaultPrompts,
       thresholds: {
         minConfidence: 0.0,
         maxPriority: 3,
@@ -158,20 +155,6 @@ describe('validateConfig', () => {
     expect(() => validateConfig(raw)).toThrow(
       'must be a model string (e.g. "provider/model-id") or { chooseFrom: ["model1", "model2", ...] }'
     )
-  })
-
-  it('merges custom prompt overrides with defaults', () => {
-    const raw = parseDefault()
-    raw.prompts = {
-      uncommitted: 'Only review uncommitted changes.',
-    }
-
-    const config = validateConfig(raw)
-
-    expect(config.prompts).toEqual({
-      ...defaultPrompts,
-      uncommitted: 'Only review uncommitted changes.',
-    })
   })
 
   it('accepts custom tools beyond the defaults', () => {

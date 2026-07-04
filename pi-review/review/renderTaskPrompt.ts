@@ -1,42 +1,66 @@
-import type { ReviewConfig } from '../config/validateConfig'
+import dedent from 'dedent'
 
 export type ReviewTarget =
   | { type: 'uncommitted' }
-  | { type: 'baseBranch'; baseBranch: string; mergeBaseSha: string }
   | {
-      type: 'baseBranchFallback'
-      branch: string
-      upstreamBranch: string
+      type: 'baseBranch'
+      baseBranch: string
+      upstreamBranch?: string
       mergeBaseSha: string
     }
   | { type: 'commit'; sha: string; title?: string }
   | { type: 'custom'; instructions: string }
 
-export function renderTaskPrompt(params: {
-  target: ReviewTarget
-  prompts: ReviewConfig['prompts']
-}): string {
-  const { target, prompts } = params
+function uncommittedTaskPrompt(): string {
+  return dedent`
+    Review the current code changes, including staged, unstaged, and untracked
+    files. Start with the \`reviewer-git\` tool using
+    \`{ action: "statusShort" }\`, inspect unstaged changes with
+    \`{ action: "diff" }\`, inspect staged changes with
+    \`{ action: "diffCached" }\`, and read relevant untracked files reported by
+    status. Provide prioritized findings.
+  `
+}
 
+function baseBranchTaskPrompt(params: {
+  baseBranch: string
+  upstreamBranch?: string
+  mergeBaseSha: string
+}): string {
+  const against =
+    params.upstreamBranch === undefined
+      ? `the base branch '${params.baseBranch}'`
+      : `'${params.baseBranch}' via its upstream '${params.upstreamBranch}'`
+  const diffBranch = params.upstreamBranch ?? params.baseBranch
+  return dedent`
+    Review the code changes against ${against}. The merge base commit for this
+    comparison is ${params.mergeBaseSha}. Use the \`reviewer-git\` tool with
+    \`{ action: "diff", base: "${params.mergeBaseSha}" }\` to inspect the
+    changes relative to ${diffBranch}. Provide prioritized, actionable
+    findings.
+  `
+}
+
+function commitTaskPrompt(params: { sha: string; title?: string }): string {
+  const commit =
+    params.title === undefined
+      ? `commit ${params.sha}`
+      : `commit ${params.sha} ("${params.title}")`
+  return dedent`
+    Review the code changes introduced by ${commit}. Use the \`reviewer-git\`
+    tool with \`{ action: "show", sha: "${params.sha}" }\` and read surrounding
+    files as needed. Provide prioritized, actionable findings.
+  `
+}
+
+export function renderTaskPrompt(target: ReviewTarget): string {
   switch (target.type) {
     case 'uncommitted':
-      return prompts.uncommitted
+      return uncommittedTaskPrompt()
     case 'baseBranch':
-      return prompts.baseBranch
-        .replaceAll('{{base_branch}}', target.baseBranch)
-        .replaceAll('{{merge_base_sha}}', target.mergeBaseSha)
-    case 'baseBranchFallback':
-      return prompts.baseBranchFallback
-        .replaceAll('{{branch}}', target.branch)
-        .replaceAll('{{upstream_branch}}', target.upstreamBranch)
-        .replaceAll('{{merge_base_sha}}', target.mergeBaseSha)
+      return baseBranchTaskPrompt(target)
     case 'commit':
-      if (target.title !== undefined) {
-        return prompts.commit
-          .replaceAll('{{sha}}', target.sha)
-          .replaceAll('{{title}}', target.title)
-      }
-      return prompts.commitNoTitle.replaceAll('{{sha}}', target.sha)
+      return commitTaskPrompt(target)
     case 'custom':
       return target.instructions
   }

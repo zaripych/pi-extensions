@@ -16,7 +16,6 @@ describe('generateExampleConfig', () => {
     const yaml = generateExampleConfig()
 
     expect(yaml).toMatch(/^# model:/m)
-    expect(yaml).toMatch(/^# prompts:/m)
   })
 
   it('includes default values for fields that have them', () => {

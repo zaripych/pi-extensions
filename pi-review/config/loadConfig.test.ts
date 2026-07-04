@@ -1,7 +1,6 @@
 import { combineHarnesses } from 'foundation/testing/harness/combineHarnesses'
 import { describe, expect, it } from 'vitest'
 import { stringify as stringifyYaml } from 'yaml'
-import { defaultPrompts } from './defaults'
 import { setupLoadConfig } from './loadConfig.harness'
 
 const setup = combineHarnesses(setupLoadConfig)
@@ -19,7 +18,6 @@ describe('loadConfig', () => {
         tools: ['read', 'grep', 'find', 'ls'],
         systemPrompt: 'review-prompt.md',
         systemPromptContent: expectedPromptContent,
-        prompts: defaultPrompts,
         thresholds: {
           minConfidence: 0.0,
           maxPriority: 3,
@@ -47,7 +45,7 @@ describe('loadConfig', () => {
     )
   })
 
-  it('reads existing config and merges custom prompt overrides with code defaults', async () => {
+  it('reads existing config', async () => {
     await using harness = await setup()
     await harness.writeFile(
       harness.configPath,
@@ -55,9 +53,6 @@ describe('loadConfig', () => {
         model: 'anthropic/claude-sonnet-4-20250514',
         tools: ['read', 'grep'],
         systemPrompt: harness.systemPromptPath,
-        prompts: {
-          uncommitted: 'Only review the current working tree.',
-        },
         thresholds: {
           minConfidence: 0.75,
           maxPriority: 2,
@@ -74,10 +69,6 @@ describe('loadConfig', () => {
         systemPromptContent: 'Existing system prompt',
         tools: ['read', 'grep'],
         systemPrompt: harness.systemPromptPath,
-        prompts: {
-          ...defaultPrompts,
-          uncommitted: 'Only review the current working tree.',
-        },
         thresholds: {
           minConfidence: 0.75,
           maxPriority: 2,
