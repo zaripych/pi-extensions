@@ -11,6 +11,7 @@ import type { TargetSelection } from './pickTarget'
 export type ReviewFormResult = {
   target: TargetSelection
   modelId: string
+  includeAgents: boolean
 }
 
 export type ReviewFormTheme = {
@@ -29,7 +30,16 @@ const targetLabels: Record<ReviewFormTarget, string> = {
 
 const targets: ReviewFormTarget[] = ['uncommitted', 'branch', 'commit']
 
-type RowId = 'target' | 'base' | 'commit' | 'model' | 'fetch' | 'start'
+type RowId =
+  | 'target'
+  | 'base'
+  | 'commit'
+  | 'model'
+  | 'agents'
+  | 'fetch'
+  | 'start'
+
+type SelectorRowId = Exclude<RowId, 'fetch' | 'start'>
 
 export class ReviewForm {
   private form: ReviewFormData
@@ -39,6 +49,7 @@ export class ReviewForm {
   private baseIndex: number
   private commitIndex = 0
   private modelIndex: number
+  private includeAgents = false
   private selector: SelectList | null = null
 
   private done: (result: ReviewFormResult | 'fetch' | undefined) => void
@@ -81,6 +92,7 @@ export class ReviewForm {
       ...(this.target === 'branch' ? ['base' as const] : []),
       ...(this.target === 'commit' ? ['commit' as const] : []),
       'model',
+      'agents',
       'fetch',
       'start',
     ]
@@ -109,6 +121,11 @@ export class ReviewForm {
           label: 'Model',
           value: this.form.models[this.modelIndex] ?? '',
         }
+      case 'agents':
+        return {
+          label: 'Include AGENTS.md',
+          value: this.includeAgents ? 'Yes' : 'No',
+        }
       case 'fetch':
         return { label: 'Fetch origin', value: '' }
       case 'start':
@@ -128,15 +145,17 @@ export class ReviewForm {
   private selection(): ReviewFormResult | undefined {
     const modelId = this.form.models[this.modelIndex]
     if (modelId === undefined) return undefined
+    const { includeAgents } = this
     switch (this.target) {
       case 'uncommitted':
-        return { target: { type: 'uncommitted' }, modelId }
+        return { target: { type: 'uncommitted' }, modelId, includeAgents }
       case 'branch': {
         const branch = this.form.branches[this.baseIndex]
         if (!branch) return undefined
         return {
           target: { type: 'baseBranch', branch: branch.name },
           modelId,
+          includeAgents,
         }
       }
       case 'commit': {
@@ -145,12 +164,13 @@ export class ReviewForm {
         return {
           target: { type: 'commit', sha: commit.sha, title: commit.title },
           modelId,
+          includeAgents,
         }
       }
     }
   }
 
-  private selectorChoices(rowId: 'target' | 'base' | 'commit' | 'model'): {
+  private selectorChoices(rowId: SelectorRowId): {
     labels: string[]
     index: number
     pick: (index: number) => void
@@ -190,10 +210,18 @@ export class ReviewForm {
             this.modelIndex = index
           },
         }
+      case 'agents':
+        return {
+          labels: ['No', 'Yes'],
+          index: this.includeAgents ? 1 : 0,
+          pick: (index) => {
+            this.includeAgents = index === 1
+          },
+        }
     }
   }
 
-  private openSelector(rowId: 'target' | 'base' | 'commit' | 'model'): void {
+  private openSelector(rowId: SelectorRowId): void {
     const choices = this.selectorChoices(rowId)
     const items = choices.labels.map((label, index) => ({
       value: String(index),

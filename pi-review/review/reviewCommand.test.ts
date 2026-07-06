@@ -113,6 +113,7 @@ describe('reviewCommand', () => {
       showReviewForm: async () => ({
         target: { type: 'baseBranch' as const, branch: 'main' },
         modelId: 'openai/gpt-4o',
+        includeAgents: true,
       }),
       notify: vi.fn(),
       runWithCancellableLoader: passthroughLoader,
@@ -125,6 +126,7 @@ describe('reviewCommand', () => {
       expect.objectContaining({
         cwd: '/test/project',
         modelId: 'openai/gpt-4o',
+        includeAgents: true,
         taskPrompt: expect.stringMatching(
           /Review the code changes against the base branch 'main'[\s\S]*abc1234/u
         ),

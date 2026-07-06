@@ -58,6 +58,7 @@ describe('pickTarget', () => {
     const showReviewForm = vi.fn(async () => ({
       target: { type: 'baseBranch' as const, branch: 'origin/main' },
       modelId: 'openai/gpt-4o',
+      includeAgents: false,
     }))
     const result = await harness.pickTarget({
       ...pickTargetParams(),
@@ -70,6 +71,7 @@ describe('pickTarget', () => {
     expect(result).toEqual({
       target: { type: 'baseBranch', branch: 'origin/main' },
       modelId: 'openai/gpt-4o',
+      includeAgents: false,
     })
   })
 
@@ -79,6 +81,7 @@ describe('pickTarget', () => {
     const selection = {
       target: { type: 'baseBranch' as const, branch: 'origin/main' },
       modelId: 'openai/gpt-4o',
+      includeAgents: false,
     }
     const showReviewForm = vi
       .fn()

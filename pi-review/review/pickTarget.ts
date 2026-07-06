@@ -31,7 +31,10 @@ export interface PickTargetParams {
 export async function pickTarget(
   params: PickTargetParams,
   deps = defaultDeps
-): Promise<{ target: TargetSelection; modelId?: string } | 'cancelled'> {
+): Promise<
+  | { target: TargetSelection; modelId?: string; includeAgents?: boolean }
+  | 'cancelled'
+> {
   if (params.args !== '') {
     return { target: { type: 'custom', instructions: params.args } }
   }

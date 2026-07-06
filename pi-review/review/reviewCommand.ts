@@ -96,6 +96,7 @@ export async function reviewCommand(
       cwd: params.cwd,
       modelId,
       taskPrompt,
+      includeAgents: picked.includeAgents ?? false,
       signal: runArgs.signal,
     })
 

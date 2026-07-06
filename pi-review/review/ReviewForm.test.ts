@@ -98,11 +98,34 @@ describe('ReviewForm', () => {
     form.handleInput('\x1b[B')
     form.handleInput('\x1b[B')
     form.handleInput('\x1b[B')
+    form.handleInput('\x1b[B')
     form.handleInput('\r')
 
     expect(done).toHaveBeenCalledWith({
       target: { type: 'baseBranch', branch: 'origin/main' },
       modelId: 'openai/gpt-4o',
+      includeAgents: false,
+    })
+  })
+
+  it('toggling Include AGENTS.md submits includeAgents true', () => {
+    const done = vi.fn()
+    const form = new ReviewForm({
+      form: reviewFormData(),
+      done,
+      theme: plainTheme,
+    })
+
+    form.handleInput('\x1b[B')
+    form.handleInput('\x1b[B')
+    form.handleInput('\x1b[B')
+    form.handleInput('\x1b[C')
+    form.handleInput('\x1b[13;5u')
+
+    expect(done).toHaveBeenCalledWith({
+      target: { type: 'baseBranch', branch: 'origin/main' },
+      modelId: 'openai/gpt-4o',
+      includeAgents: true,
     })
   })
 
@@ -114,6 +137,7 @@ describe('ReviewForm', () => {
       theme: plainTheme,
     })
 
+    form.handleInput('\x1b[B')
     form.handleInput('\x1b[B')
     form.handleInput('\x1b[B')
     form.handleInput('\x1b[B')
@@ -148,6 +172,7 @@ describe('ReviewForm', () => {
     expect(done).toHaveBeenCalledWith({
       target: { type: 'baseBranch', branch: 'origin/main' },
       modelId: 'openai/gpt-4o',
+      includeAgents: false,
     })
   })
 
@@ -220,6 +245,7 @@ describe('ReviewForm', () => {
       expect.stringContaining('  Target'),
       expect.stringContaining('❯ Base'),
       expect.stringContaining('  Model'),
+      expect.stringContaining('  Include AGENTS.md'),
       expect.stringContaining('  Fetch origin'),
       expect.stringContaining('  Start review'),
     ])

@@ -34,6 +34,7 @@ export async function runReviewSession(params: {
   cwd: string
   modelId: string
   taskPrompt: string
+  includeAgents?: boolean
   signal?: AbortSignal
 }): Promise<
   { output: ReviewOutput } | { error: string } | { cancelled: true }
@@ -65,7 +66,7 @@ export async function runReviewSession(params: {
     noExtensions: true,
     noSkills: true,
     noPromptTemplates: true,
-    noContextFiles: true,
+    noContextFiles: !params.includeAgents,
     systemPromptOverride: () => config.systemPromptContent,
   })
   await loader.reload()
