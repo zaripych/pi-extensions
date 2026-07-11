@@ -1,0 +1,76 @@
+{
+  "$ref": "#/definitions/NeuralwattConfig",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "NeuralwattConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "$schema": {
+          "description": "$schema URL for editor autocomplete.",
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "#/definitions/NeuralwattProviderConfig",
+          "description": "Provider/model behavior."
+        },
+        "quotaCommand": {
+          "$ref": "#/definitions/NeuralwattQuotaCommandConfig",
+          "description": "Quota command feature."
+        },
+        "quotaWarnings": {
+          "$ref": "#/definitions/NeuralwattQuotaWarningsConfig",
+          "description": "Quota warning feature."
+        },
+        "subBarIntegration": {
+          "$ref": "#/definitions/NeuralwattSubBarIntegrationConfig",
+          "description": "Sub-bar/status-bar integration feature."
+        }
+      },
+      "type": "object"
+    },
+    "NeuralwattProviderConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "includeHiddenModels": {
+          "description": "Include hidden Neuralwatt models discovered via the authenticated API.",
+          "type": "boolean"
+        },
+        "includeLegacyModelIds": {
+          "description": "Include legacy Neuralwatt model IDs in the model picker.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "NeuralwattQuotaCommandConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Show the quota command (/neuralwatt:quota).",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "NeuralwattQuotaWarningsConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Show quota warnings when credits or energy are low.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "NeuralwattSubBarIntegrationConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Show usage in the sub-bar / status bar.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  }
+}
