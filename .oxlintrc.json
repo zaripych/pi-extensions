@@ -4,5 +4,5 @@
   "options": {
     "typeAware": true
   },
-  "ignorePatterns": ["pi-web-fetch", "pi-sandbox"]
+  "ignorePatterns": ["pi-web-fetch", "pi-sandbox", "pi-neuralwatt"]
 }

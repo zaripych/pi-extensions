@@ -26,5 +26,11 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true
   },
-  "exclude": ["**/node_modules", "**/dist", "./pi-sandbox", "./pi-web-fetch"]
+  "exclude": [
+    "**/node_modules",
+    "**/dist",
+    "./pi-sandbox",
+    "./pi-web-fetch",
+    "./pi-neuralwatt"
+  ]
 }

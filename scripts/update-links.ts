@@ -20,7 +20,7 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const SKIP_DIRS = new Set(['scripts', 'node_modules', '.git'])
+const SKIP_DIRS = new Set(['scripts', 'node_modules', '.git', 'foundation'])
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const DEST =
