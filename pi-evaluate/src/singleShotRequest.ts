@@ -1,10 +1,14 @@
-import { type Api, type Model, type ProviderStreams } from '@earendil-works/pi-ai'
+import {
+  type Api,
+  type Model,
+  type ProviderStreams,
+} from '@earendil-works/pi-ai'
 import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messages.lazy'
 import { azureOpenAIResponsesApi } from '@earendil-works/pi-ai/api/azure-openai-responses.lazy'
 import { openAICodexResponsesApi } from '@earendil-works/pi-ai/api/openai-codex-responses.lazy'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import { openAIResponsesApi } from '@earendil-works/pi-ai/api/openai-responses.lazy'
-import type { ModelRegistry } from '@earendil-works/pi-coding-agent'
+import type { ModelRuntime } from '@earendil-works/pi-coding-agent'
 import { z } from 'zod'
 
 export type SingleShotRequest = <Output>(params: {
@@ -98,12 +102,14 @@ function extractText(content: { type: string }[]): string {
 
 export function createSingleShotRequest(params: {
   model: Model<Api>
-  modelRegistry: Pick<ModelRegistry, 'getApiKeyAndHeaders'>
+  modelRuntime: Pick<ModelRuntime, 'getAuth'>
 }): SingleShotRequest {
   return async ({ prompt, schema, signal }) => {
-    const auth = await params.modelRegistry.getApiKeyAndHeaders(params.model)
-    if (!auth.ok) {
-      throw new Error(`Could not resolve model credentials: ${auth.error}`)
+    const resolution = await params.modelRuntime.getAuth(params.model)
+    if (!resolution) {
+      throw new Error(
+        `Could not resolve model credentials for "${params.model.provider}/${params.model.id}"`
+      )
     }
     const stream = resolveApi(params.model).streamSimple(
       params.model,
@@ -111,8 +117,8 @@ export function createSingleShotRequest(params: {
         messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
       },
       {
-        apiKey: auth.apiKey,
-        headers: auth.headers,
+        apiKey: resolution.auth.apiKey,
+        headers: resolution.auth.headers,
         signal,
         onPayload: (payload) =>
           injectStructuredOutput({ payload, model: params.model, schema }),

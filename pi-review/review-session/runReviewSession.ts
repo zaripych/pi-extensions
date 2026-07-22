@@ -1,10 +1,9 @@
 import { addAbortListener } from 'node:events'
 import {
-  AuthStorage,
   createAgentSession,
   DefaultResourceLoader,
   getAgentDir,
-  ModelRegistry,
+  ModelRuntime,
   SessionManager,
   SettingsManager,
 } from '@earendil-works/pi-coding-agent'
@@ -51,9 +50,8 @@ export async function runReviewSession(params: {
     throw new Error(`Invalid model ID format: ${modelId}`)
   }
 
-  const authStorage = AuthStorage.create()
-  const modelRegistry = ModelRegistry.create(authStorage)
-  const model = modelRegistry.find(provider, id)
+  const modelRuntime = await ModelRuntime.create()
+  const model = modelRuntime.getModel(provider, id)
   if (!model) {
     throw new Error(`Model not found: ${modelId}`)
   }
@@ -82,8 +80,7 @@ export async function runReviewSession(params: {
     resourceLoader: loader,
     sessionManager,
     settingsManager: SettingsManager.inMemory(),
-    authStorage,
-    modelRegistry,
+    modelRuntime,
   })
 
   const toolEndEvents: {

@@ -120,7 +120,7 @@ function createDepsWithSingleShotRequest(params: {
   cacheDir: string
 }) {
   return {
-    createCliRequestOutput: () => ({
+    createCliRequestOutput: async () => ({
       singleShotRequest: params.singleShotRequest,
     }),
     getCacheDir: async () => params.cacheDir,
@@ -137,7 +137,7 @@ export const setupEvaluate = configureHarnesses(
     const deps = configureDependencies(
       { inferTypesFrom: { defaultDeps: evaluate.defaultDeps }, userDeps },
       {
-        createCliRequestOutput: () => ({
+        createCliRequestOutput: async () => ({
           singleShotRequest: async ({ schema }) =>
             schema.parse({
               score: faker.number.int({ min: 0, max: 1 }),
@@ -182,9 +182,7 @@ export const setupEvaluate = configureHarnesses(
       return filePath
     }
 
-    async function runEvaluate(
-      params: RunEvaluateParams
-    ): Promise<{
+    async function runEvaluate(params: RunEvaluateParams): Promise<{
       rows: unknown[]
       summary: Awaited<ReturnType<typeof evaluate>>
     }> {

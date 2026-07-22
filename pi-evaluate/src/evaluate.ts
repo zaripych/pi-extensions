@@ -180,8 +180,9 @@ export async function evaluate(
   const singleShotRequest = dryRun
     ? dryRunRequest
     : withResultCache({
-        singleShotRequest: deps.createCliRequestOutput({ model: params.model })
-          .singleShotRequest,
+        singleShotRequest: (
+          await deps.createCliRequestOutput({ model: params.model })
+        ).singleShotRequest,
         cacheDir,
         model: params.model,
         cacheCounts,

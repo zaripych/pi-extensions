@@ -6,7 +6,7 @@ import { setupE2e } from './e2e.harness'
 const markdown = dedent
 const setup = combineHarnesses(setupE2e)
 
-const models = ['openai/gpt-5.4-mini', 'anthropic/claude-sonnet-4-6']
+const models = ['openai-codex/gpt-5.4-mini', 'anthropic/claude-sonnet-4-6']
 
 describe('evaluate CLI', () => {
   it('exits unsuccessfully with a clear error and no result row when criteria is missing', async () => {
@@ -120,13 +120,15 @@ describe('evaluate CLI', () => {
       writeTempFile,
     } = harness
 
-    const criteriaPath = (await criteriaArgs(markdown`
-      ---
-      score-range: binary
-      ---
+    const criteriaPath = (
+      await criteriaArgs(markdown`
+        ---
+        score-range: binary
+        ---
 
-      Score whether the answer is helpful.
-    `)).at(1)
+        Score whether the answer is helpful.
+      `)
+    ).at(1)
     const dataPath = await writeTempFile({
       name: 'records.jsonl',
       content: `${JSON.stringify({ answer: 'first' })}\n${JSON.stringify({ answer: 'second' })}\n`,
@@ -229,6 +231,7 @@ describe.skipIf(!process.env.E2E)('evaluate CLI against real models', () => {
             Evaluate whether the sample text expresses a positive sentiment.
 
             Steps:
+
             1. Read the text.
             2. Decide whether its overall sentiment is positive.
 
@@ -253,6 +256,7 @@ describe.skipIf(!process.env.E2E)('evaluate CLI against real models', () => {
               criteriaHash: expect.any(String),
               model,
               seed: 0,
+              rubricScore: expect.any(Number),
               normalizedScore: expect.any(Number),
               reason: expect.stringMatching(/.+/),
             },
