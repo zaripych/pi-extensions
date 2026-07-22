@@ -1,86 +1,83 @@
-import { join } from "node:path";
-import {
-  type ExtensionAPI,
-  getAgentDir,
-} from "@earendil-works/pi-coding-agent";
-import { fetchQuotas } from "../../src/lib/neuralwatt-api";
-import { getNeuralwattApiKey } from "../_shared/auth";
-import { QuotasComponent } from "./components/quotas-display";
+import { join } from 'node:path'
+import { type ExtensionAPI, getAgentDir } from '@earendil-works/pi-coding-agent'
+import { fetchQuotas } from '../../src/lib/neuralwatt-api'
+import { getNeuralwattApiKey } from '../_shared/auth'
+import { QuotasComponent } from './components/quotas-display'
 
 function missingAuthMessage(): string {
-  const authPath = join(getAgentDir(), "auth.json");
-  return `Neuralwatt quota requires an API key. Add credentials to ${authPath} or set the NEURALWATT_API_KEY environment variable.`;
+  const authPath = join(getAgentDir(), 'auth.json')
+  return `Neuralwatt quota requires an API key. Add credentials to ${authPath} or set the NEURALWATT_API_KEY environment variable.`
 }
 
 export function registerQuotasCommand(pi: ExtensionAPI): void {
-  pi.registerCommand("neuralwatt:quota", {
-    description: "Display Neuralwatt API usage and quota",
+  pi.registerCommand('neuralwatt:quota', {
+    description: 'Display Neuralwatt API usage and quota',
     handler: async (_args, ctx) => {
-      const apiKey = await getNeuralwattApiKey(ctx.modelRegistry.authStorage);
+      const apiKey = await getNeuralwattApiKey(ctx.modelRegistry)
       if (!apiKey) {
-        ctx.ui.notify(missingAuthMessage(), "warning");
-        return;
+        ctx.ui.notify(missingAuthMessage(), 'warning')
+        return
       }
-      const key: string = apiKey;
+      const key: string = apiKey
 
       const result = await ctx.ui.custom<null>((tui, theme, _kb, done) => {
-        const controller = new AbortController();
+        const controller = new AbortController()
         const component = new QuotasComponent(
           theme,
           tui,
           () => {
-            controller.abort();
-            done(null);
+            controller.abort()
+            done(null)
           },
           () => {
-            component.setState({ type: "loading" });
-            tui.requestRender();
-            void loadQuotas();
-          },
-        );
+            component.setState({ type: 'loading' })
+            tui.requestRender()
+            void loadQuotas()
+          }
+        )
 
         async function loadQuotas(): Promise<void> {
-          const fetchResult = await fetchQuotas(key, controller.signal);
-          if (controller.signal.aborted) return;
+          const fetchResult = await fetchQuotas(key, controller.signal)
+          if (controller.signal.aborted) return
           if (fetchResult.success) {
             component.setState({
-              type: "loaded",
+              type: 'loaded',
               quotas: fetchResult.data.quotas,
-            });
+            })
           } else {
             component.setState({
-              type: "error",
+              type: 'error',
               message: fetchResult.error.message,
-            });
+            })
           }
-          tui.requestRender();
+          tui.requestRender()
         }
 
-        void loadQuotas();
+        void loadQuotas()
 
         return {
           render: (width: number) => component.render(width),
           invalidate: () => component.invalidate(),
           handleInput: (data: string) => component.handleInput(data),
           dispose: () => {
-            controller.abort();
-            component.destroy();
+            controller.abort()
+            component.destroy()
           },
-        };
-      });
+        }
+      })
 
       // Non-interactive fallback (RPC, print, JSON modes)
       if (result === undefined) {
-        const fetchResult = await fetchQuotas(key);
+        const fetchResult = await fetchQuotas(key)
         if (!fetchResult.success) {
           ctx.ui.notify(
             JSON.stringify({ error: fetchResult.error.message }),
-            "error",
-          );
-          return;
+            'error'
+          )
+          return
         }
-        ctx.ui.notify(JSON.stringify(fetchResult.data.quotas), "info");
+        ctx.ui.notify(JSON.stringify(fetchResult.data.quotas), 'info')
       }
     },
-  });
+  })
 }

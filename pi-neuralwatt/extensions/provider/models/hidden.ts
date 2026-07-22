@@ -1,11 +1,11 @@
 import type {
-  AuthStorage,
+  ModelRegistry,
   ProviderModelConfig,
-} from "@earendil-works/pi-coding-agent";
-import { fetchNeuralwattModels } from "../../../src/lib/neuralwatt-api";
-import type { NeuralwattApiModel } from "../../../src/types/models-api";
-import { getNeuralwattApiKey } from "../../_shared/auth";
-import { NEURALWATT_MODELS } from "./public-models";
+} from '@earendil-works/pi-coding-agent'
+import { fetchNeuralwattModels } from '../../../src/lib/neuralwatt-api'
+import type { NeuralwattApiModel } from '../../../src/types/models-api'
+import { getNeuralwattApiKey } from '../../_shared/auth'
+import { NEURALWATT_MODELS } from './public-models'
 
 // Per-ID overrides for known hidden models. The authenticated /v1/models endpoint
 // exposes pricing and capabilities, but some Pi-specific behavior (thinking levels,
@@ -13,28 +13,28 @@ import { NEURALWATT_MODELS } from "./public-models";
 // Previously hidden models that have since gone public now live in public-models.ts.
 const HIDDEN_MODEL_OVERRIDES: Partial<
   Record<string, Partial<ProviderModelConfig>>
-> = {};
+> = {}
 
 function buildHiddenModel(apiModel: NeuralwattApiModel): ProviderModelConfig {
-  const meta = apiModel.metadata;
-  const reasoning = meta?.capabilities.reasoning ?? false;
-  const override = HIDDEN_MODEL_OVERRIDES[apiModel.id];
+  const meta = apiModel.metadata
+  const reasoning = meta?.capabilities.reasoning ?? false
+  const override = HIDDEN_MODEL_OVERRIDES[apiModel.id]
 
-  const compat: NonNullable<ProviderModelConfig["compat"]> = {
+  const compat: NonNullable<ProviderModelConfig['compat']> = {
     supportsDeveloperRole: false,
-    maxTokensField: "max_tokens",
-  };
+    maxTokensField: 'max_tokens',
+  }
   if (reasoning) {
-    compat.requiresReasoningContentOnAssistantMessages = true;
+    compat.requiresReasoningContentOnAssistantMessages = true
   }
 
   const model: ProviderModelConfig = {
     id: apiModel.id,
     name: meta?.display_name ?? apiModel.id,
     reasoning,
-    input: (meta?.capabilities.vision ? ["text", "image"] : ["text"]) as (
-      | "text"
-      | "image"
+    input: (meta?.capabilities.vision ? ['text', 'image'] : ['text']) as (
+      | 'text'
+      | 'image'
     )[],
     cost: {
       input: meta?.pricing.input_per_million ?? 0,
@@ -45,49 +45,49 @@ function buildHiddenModel(apiModel: NeuralwattApiModel): ProviderModelConfig {
     contextWindow: apiModel.max_model_len,
     maxTokens: meta?.limits.max_output_tokens ?? 65536,
     compat,
-  };
+  }
 
   if (reasoning) {
     model.thinkingLevelMap = override?.thinkingLevelMap ?? {
       minimal: null,
       low: null,
-      medium: "medium",
+      medium: 'medium',
       high: null,
       xhigh: null,
-    };
+    }
   }
 
   if (override) {
-    return applyHiddenOverride(model, override);
+    return applyHiddenOverride(model, override)
   }
 
-  return model;
+  return model
 }
 
 function applyHiddenOverride(
   model: ProviderModelConfig,
-  override: Partial<ProviderModelConfig>,
+  override: Partial<ProviderModelConfig>
 ): ProviderModelConfig {
-  const result: ProviderModelConfig = { ...model };
+  const result: ProviderModelConfig = { ...model }
 
-  if (override.name !== undefined) result.name = override.name;
-  if (override.reasoning !== undefined) result.reasoning = override.reasoning;
-  if (override.input !== undefined) result.input = override.input;
+  if (override.name !== undefined) result.name = override.name
+  if (override.reasoning !== undefined) result.reasoning = override.reasoning
+  if (override.input !== undefined) result.input = override.input
   if (override.thinkingLevelMap !== undefined) {
-    result.thinkingLevelMap = override.thinkingLevelMap;
+    result.thinkingLevelMap = override.thinkingLevelMap
   }
   if (override.contextWindow !== undefined) {
-    result.contextWindow = override.contextWindow;
+    result.contextWindow = override.contextWindow
   }
-  if (override.maxTokens !== undefined) result.maxTokens = override.maxTokens;
+  if (override.maxTokens !== undefined) result.maxTokens = override.maxTokens
   if (override.cost !== undefined) {
-    result.cost = { ...model.cost, ...override.cost };
+    result.cost = { ...model.cost, ...override.cost }
   }
   if (override.compat !== undefined) {
-    result.compat = { ...model.compat, ...override.compat };
+    result.compat = { ...model.compat, ...override.compat }
   }
 
-  return result;
+  return result
 }
 
 /**
@@ -98,22 +98,22 @@ function applyHiddenOverride(
  * empty array is returned silently.
  */
 export async function loadHiddenModels(
-  authStorage: AuthStorage,
-  signal?: AbortSignal,
+  modelRegistry: ModelRegistry,
+  signal?: AbortSignal
 ): Promise<ProviderModelConfig[]> {
-  const apiKey = await getNeuralwattApiKey(authStorage);
-  if (!apiKey) return [];
+  const apiKey = await getNeuralwattApiKey(modelRegistry)
+  if (!apiKey) return []
 
-  const result = await fetchNeuralwattModels(apiKey, signal);
-  if (!result.success) return [];
+  const result = await fetchNeuralwattModels(apiKey, signal)
+  if (!result.success) return []
 
-  const publicIds = new Set(NEURALWATT_MODELS.map((model) => model.id));
+  const publicIds = new Set(NEURALWATT_MODELS.map((model) => model.id))
 
   return result.data
     .filter(
       (model) =>
-        !model.metadata?.deprecated && !model.metadata?.pricing.pricing_tbd,
+        !model.metadata?.deprecated && !model.metadata?.pricing.pricing_tbd
     )
     .filter((model) => !publicIds.has(model.id))
-    .map(buildHiddenModel);
+    .map(buildHiddenModel)
 }

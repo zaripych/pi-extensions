@@ -1,9 +1,10 @@
-import { getApiProvider } from "@earendil-works/pi-ai/compat";
+import { getApiProvider } from '@earendil-works/pi-ai/compat'
 import type {
   ExtensionAPI,
+  ModelRegistry,
   ProviderModelConfig,
-} from "@earendil-works/pi-coding-agent";
-import { configLoader } from "../../src/config";
+} from '@earendil-works/pi-coding-agent'
+import { configLoader } from '../../src/config'
 import {
   NEURALWATT_CONFIG_UPDATED_EVENT,
   NEURALWATT_EXTENSIONS_REGISTER_EVENT,
@@ -12,71 +13,71 @@ import {
   NEURALWATT_QUOTAS_UPDATED_EVENT,
   type NeuralwattFeatureId,
   type NeuralwattQuotasUpdatedPayload,
-} from "../../src/events";
-import { fetchQuotas } from "../../src/lib/neuralwatt-api";
-import type { NeuralwattQuotas } from "../../src/types/quota-api";
-import { getNeuralwattApiKey } from "../_shared/auth";
-import { registerNeuralwattSettings } from "./commands/settings";
-import { normalizeNeuralwattContextOverflowError } from "./context-overflow";
+} from '../../src/events'
+import { fetchQuotas } from '../../src/lib/neuralwatt-api'
+import type { NeuralwattQuotas } from '../../src/types/quota-api'
+import { getNeuralwattApiKey } from '../_shared/auth'
+import { registerNeuralwattSettings } from './commands/settings'
+import { normalizeNeuralwattContextOverflowError } from './context-overflow'
 import {
   getNeuralwattModels,
   loadCachedHiddenModels,
   loadHiddenModels,
   writeHiddenModelsCache,
-} from "./models";
-import { buildQuotasFromHeaders, fetchRequestedQuotas } from "./quota-store";
+} from './models'
+import { buildQuotasFromHeaders } from './quota-store'
 import {
   type NeuralwattRateLimitInfo,
   normalizeNeuralwattRateLimitError,
   parseRateLimitHeaders,
-} from "./rate-limit-error";
-import { updateQuotasFromSseComment } from "./sse-quotas";
-import { wrapNeuralwattStreamSimple } from "./stream-simple";
+} from './rate-limit-error'
+import { updateQuotasFromSseComment } from './sse-quotas'
+import { wrapNeuralwattStreamSimple } from './stream-simple'
 
-const HEADER_EMIT_THROTTLE_MS = 5_000;
+const HEADER_EMIT_THROTTLE_MS = 5_000
 
 function emitConfigUpdated(pi: ExtensionAPI): void {
   pi.events.emit(NEURALWATT_CONFIG_UPDATED_EVENT, {
     config: configLoader.getConfig(),
-  });
+  })
 }
 
 function registerNeuralwattProvider(
   pi: ExtensionAPI,
   onSseQuota: (line: string) => void,
-  hiddenModels: ProviderModelConfig[] = [],
+  hiddenModels: ProviderModelConfig[] = []
 ): void {
-  const { provider: providerConfig } = configLoader.getConfig();
+  const { provider: providerConfig } = configLoader.getConfig()
 
   const publicModels = getNeuralwattModels({
     includeLegacyModelIds: providerConfig.includeLegacyModelIds,
-  });
+  })
   const resolvedHiddenModels = providerConfig.includeHiddenModels
     ? dedupeHiddenModels(hiddenModels, publicModels)
-    : [];
+    : []
 
-  const config: Parameters<ExtensionAPI["registerProvider"]>[1] = {
-    baseUrl: "https://api.neuralwatt.com/v1",
-    apiKey: "$NEURALWATT_API_KEY",
-    api: "openai-completions",
+  const config: Parameters<ExtensionAPI['registerProvider']>[1] = {
+    baseUrl: 'https://api.neuralwatt.com/v1',
+    apiKey: '$NEURALWATT_API_KEY',
+    api: 'openai-completions',
     authHeader: true,
     headers: {
-      Referer: "https://pi.dev",
-      "X-Title": "npm:@aliou/pi-neuralwatt",
+      Referer: 'https://pi.dev',
+      'X-Title': 'npm:@aliou/pi-neuralwatt',
     },
     models: [...publicModels, ...resolvedHiddenModels],
-  };
+  }
 
-  const provider = getApiProvider("openai-completions");
-  const baseStreamSimple = provider?.streamSimple;
+  const provider = getApiProvider('openai-completions')
+  const baseStreamSimple = provider?.streamSimple
   if (baseStreamSimple) {
     config.streamSimple = wrapNeuralwattStreamSimple(
       baseStreamSimple as never,
-      onSseQuota,
-    ) as never;
+      onSseQuota
+    ) as never
   }
 
-  pi.registerProvider("neuralwatt", config);
+  pi.registerProvider('neuralwatt', config)
 }
 
 /**
@@ -90,16 +91,17 @@ function registerNeuralwattProvider(
  */
 function dedupeHiddenModels(
   hiddenModels: ProviderModelConfig[],
-  publicModels: ProviderModelConfig[],
+  publicModels: ProviderModelConfig[]
 ): ProviderModelConfig[] {
-  const publicIds = new Set(publicModels.map((m) => m.id));
-  return hiddenModels.filter((m) => !publicIds.has(m.id));
+  const publicIds = new Set(publicModels.map((m) => m.id))
+  return hiddenModels.filter((m) => !publicIds.has(m.id))
 }
 
 export default async function (pi: ExtensionAPI) {
-  await configLoader.load();
+  await configLoader.load()
 
-  let latestQuotas: NeuralwattQuotas | undefined;
+  let latestQuotas: NeuralwattQuotas | undefined
+  let modelRegistryRef: ModelRegistry | undefined
 
   // Stale-while-revalidate seed for hidden models.
   //
@@ -112,31 +114,31 @@ export default async function (pi: ExtensionAPI) {
   // the on-disk cache so the provider is registered with hidden models at
   // load time. `session_start` then revalidates from the live API and writes
   // the cache back. First run with no cache still warns once.
-  let hiddenModels: ProviderModelConfig[] = [];
+  let hiddenModels: ProviderModelConfig[] = []
   if (configLoader.getConfig().provider.includeHiddenModels) {
-    hiddenModels = loadCachedHiddenModels();
+    hiddenModels = loadCachedHiddenModels()
   }
-  let hiddenModelsLoaded = false;
-  let hiddenModelsAbort: AbortController | undefined;
+  let hiddenModelsLoaded = false
+  let hiddenModelsAbort: AbortController | undefined
 
   const handleSseQuota = (line: string) => {
-    const quotas = updateQuotasFromSseComment(latestQuotas, line);
-    if (!quotas || quotas === latestQuotas) return;
-    latestQuotas = quotas;
+    const quotas = updateQuotasFromSseComment(latestQuotas, line)
+    if (!quotas || quotas === latestQuotas) return
+    latestQuotas = quotas
     pi.events.emit(NEURALWATT_QUOTAS_UPDATED_EVENT, {
       quotas,
-      source: "sse",
-    });
-  };
+      source: 'sse',
+    })
+  }
 
-  registerNeuralwattProvider(pi, handleSseQuota, hiddenModels);
+  registerNeuralwattProvider(pi, handleSseQuota, hiddenModels)
 
-  const loadedFeatures = new Set<NeuralwattFeatureId>();
+  const loadedFeatures = new Set<NeuralwattFeatureId>()
 
   // Register settings in the provider so it is always available.
   registerNeuralwattSettings(pi, {
     getLoadedFeatures: () => loadedFeatures,
-  });
+  })
 
   pi.events.on(NEURALWATT_CONFIG_UPDATED_EVENT, () => {
     // Toggle may have enabled hidden models since startup. Seed from the disk
@@ -147,51 +149,51 @@ export default async function (pi: ExtensionAPI) {
       !hiddenModelsLoaded &&
       hiddenModels.length === 0
     ) {
-      hiddenModels = loadCachedHiddenModels();
+      hiddenModels = loadCachedHiddenModels()
     }
-    registerNeuralwattProvider(pi, handleSseQuota, hiddenModels);
-  });
+    registerNeuralwattProvider(pi, handleSseQuota, hiddenModels)
+  })
 
-  pi.on("session_shutdown", () => {
-    hiddenModelsAbort?.abort();
-    hiddenModelsAbort = undefined;
-  });
+  pi.on('session_shutdown', () => {
+    hiddenModelsAbort?.abort()
+    hiddenModelsAbort = undefined
+  })
 
-  let lastHeaderEmitAt = 0;
-  let quotaRequestInFlight = false;
+  let lastHeaderEmitAt = 0
+  let quotaRequestInFlight = false
 
   function emitQuotas(
     quotas: NeuralwattQuotas,
-    source: NeuralwattQuotasUpdatedPayload["source"],
+    source: NeuralwattQuotasUpdatedPayload['source']
   ): void {
-    const now = Date.now();
-    if (source === "header" && now - lastHeaderEmitAt < HEADER_EMIT_THROTTLE_MS)
-      return;
-    if (source === "header") lastHeaderEmitAt = now;
-    latestQuotas = quotas;
-    pi.events.emit(NEURALWATT_QUOTAS_UPDATED_EVENT, { quotas, source });
+    const now = Date.now()
+    if (source === 'header' && now - lastHeaderEmitAt < HEADER_EMIT_THROTTLE_MS)
+      return
+    if (source === 'header') lastHeaderEmitAt = now
+    latestQuotas = quotas
+    pi.events.emit(NEURALWATT_QUOTAS_UPDATED_EVENT, { quotas, source })
   }
 
   // Stored rate-limit info from the most recent 429 response.
   // Used in message_end to rewrite the generic error text with
   // actionable details from Neuralwatt's response headers.
-  let pendingRateLimitInfo: NeuralwattRateLimitInfo | undefined;
+  let pendingRateLimitInfo: NeuralwattRateLimitInfo | undefined
 
-  pi.on("message_end", (event, ctx) => {
+  pi.on('message_end', (event, ctx) => {
     // Rewrite rate-limit errors with layer-specific details
     if (
       pendingRateLimitInfo &&
-      event.message.role === "assistant" &&
-      event.message.stopReason === "error" &&
-      (event.message.provider === "neuralwatt" ||
-        ctx.model?.provider === "neuralwatt")
+      event.message.role === 'assistant' &&
+      event.message.stopReason === 'error' &&
+      (event.message.provider === 'neuralwatt' ||
+        ctx.model?.provider === 'neuralwatt')
     ) {
       const message = normalizeNeuralwattRateLimitError(
         event.message,
-        pendingRateLimitInfo,
-      );
-      pendingRateLimitInfo = undefined;
-      return { message };
+        pendingRateLimitInfo
+      )
+      pendingRateLimitInfo = undefined
+      return { message }
     }
 
     // Fallback for 429s where no layer-specific headers were captured. The
@@ -203,99 +205,103 @@ export default async function (pi: ExtensionAPI) {
     // Neuralwatt), since after_provider_response cannot observe 429s — the
     // OpenAI SDK throws before Pi's onResponse hook runs.
     if (
-      event.message.role === "assistant" &&
-      event.message.stopReason === "error" &&
-      (event.message.provider === "neuralwatt" ||
-        ctx.model?.provider === "neuralwatt") &&
-      event.message.errorMessage?.includes("429") &&
-      !event.message.errorMessage.startsWith("429 rate limit:")
+      event.message.role === 'assistant' &&
+      event.message.stopReason === 'error' &&
+      (event.message.provider === 'neuralwatt' ||
+        ctx.model?.provider === 'neuralwatt') &&
+      event.message.errorMessage?.includes('429') &&
+      !event.message.errorMessage.startsWith('429 rate limit:')
     ) {
       return {
         message: normalizeNeuralwattRateLimitError(event.message, {
-          layer: "unknown",
+          layer: 'unknown',
           detail:
-            "Neuralwatt rate limit reached, but Pi did not receive layer-specific rate-limit headers. Retry shortly.",
+            'Neuralwatt rate limit reached, but Pi did not receive layer-specific rate-limit headers. Retry shortly.',
         }),
-      };
+      }
     }
 
     // Rewrite context overflow errors for Pi's native compaction
     const overflowMessage = normalizeNeuralwattContextOverflowError(
       event.message,
-      ctx.model?.provider,
-    );
-    if (!overflowMessage) return;
-    return { message: overflowMessage };
-  });
+      ctx.model?.provider
+    )
+    if (!overflowMessage) return
+    return { message: overflowMessage }
+  })
 
-  pi.on("after_provider_response", (event, ctx) => {
-    if (ctx.model?.provider !== "neuralwatt") return;
+  pi.on('after_provider_response', (event, ctx) => {
+    if (ctx.model?.provider !== 'neuralwatt') return
 
     // Capture rate-limit headers from 429 responses for message_end rewriting
     if (event.status === 429) {
-      pendingRateLimitInfo = parseRateLimitHeaders(event.headers);
+      pendingRateLimitInfo = parseRateLimitHeaders(event.headers)
     } else {
-      pendingRateLimitInfo = undefined;
+      pendingRateLimitInfo = undefined
     }
 
-    const quotas = buildQuotasFromHeaders(event.headers);
-    if (!quotas) return;
-    emitQuotas(quotas, "header");
-  });
+    const quotas = buildQuotasFromHeaders(event.headers)
+    if (!quotas) return
+    emitQuotas(quotas, 'header')
+  })
 
-  pi.events.on(NEURALWATT_QUOTAS_REQUEST_EVENT, async (data: unknown) => {
-    if (quotaRequestInFlight) return;
-    quotaRequestInFlight = true;
+  pi.events.on(NEURALWATT_QUOTAS_REQUEST_EVENT, async () => {
+    if (quotaRequestInFlight) return
+    quotaRequestInFlight = true
     try {
-      const quotas = await fetchRequestedQuotas(data);
-      if (quotas) emitQuotas(quotas, "api");
+      if (!modelRegistryRef) return
+      const apiKey = await getNeuralwattApiKey(modelRegistryRef)
+      if (!apiKey) return
+      const result = await fetchQuotas(apiKey)
+      if (result.success) emitQuotas(result.data.quotas, 'api')
     } finally {
-      quotaRequestInFlight = false;
+      quotaRequestInFlight = false
     }
-  });
+  })
 
   pi.events.on(NEURALWATT_EXTENSIONS_REGISTER_EVENT, (data: unknown) => {
-    const { feature } = data as { feature: NeuralwattFeatureId };
-    loadedFeatures.add(feature);
-  });
+    const { feature } = data as { feature: NeuralwattFeatureId }
+    loadedFeatures.add(feature)
+  })
 
-  pi.on("session_start", async (_event, ctx) => {
-    pendingRateLimitInfo = undefined;
-    const messages = [...new Set(configLoader.drainMessages())];
+  pi.on('session_start', async (_event, ctx) => {
+    pendingRateLimitInfo = undefined
+    const messages = [...new Set(configLoader.drainMessages())]
     if (messages.length > 0) {
-      ctx.ui.notify(messages.join("\n"), "info");
+      ctx.ui.notify(messages.join('\n'), 'info')
     }
 
-    loadedFeatures.clear();
-    pi.events.emit(NEURALWATT_EXTENSIONS_REQUEST_EVENT, undefined);
-    emitConfigUpdated(pi);
+    loadedFeatures.clear()
+    pi.events.emit(NEURALWATT_EXTENSIONS_REQUEST_EVENT, undefined)
+    emitConfigUpdated(pi)
 
     if (
       !hiddenModelsLoaded &&
       configLoader.getConfig().provider.includeHiddenModels
     ) {
-      hiddenModelsLoaded = true;
-      hiddenModelsAbort?.abort();
-      hiddenModelsAbort = new AbortController();
+      hiddenModelsLoaded = true
+      hiddenModelsAbort?.abort()
+      hiddenModelsAbort = new AbortController()
+      modelRegistryRef = ctx.modelRegistry
       const fetched = await loadHiddenModels(
-        ctx.modelRegistry.authStorage,
-        hiddenModelsAbort.signal,
-      );
+        ctx.modelRegistry,
+        hiddenModelsAbort.signal
+      )
       // Persist for the next startup so scoped models resolve without
       // warnings on Pi's subsequent launches. Always write the cache (even
       // when empty) and re-register, so graduated or removed hidden models
       // are purged from both the cache and the provider's model list.
-      hiddenModels = fetched;
-      await writeHiddenModelsCache(hiddenModels);
+      hiddenModels = fetched
+      await writeHiddenModelsCache(hiddenModels)
       if (!hiddenModelsAbort.signal.aborted) {
-        registerNeuralwattProvider(pi, handleSseQuota, hiddenModels);
+        registerNeuralwattProvider(pi, handleSseQuota, hiddenModels)
       }
     }
 
-    if (ctx.model?.provider !== "neuralwatt") return;
-    const apiKey = await getNeuralwattApiKey(ctx.modelRegistry.authStorage);
-    if (!apiKey) return;
-    const quotaResult = await fetchQuotas(apiKey);
-    if (quotaResult.success) emitQuotas(quotaResult.data.quotas, "api");
-  });
+    if (ctx.model?.provider !== 'neuralwatt') return
+    const apiKey = await getNeuralwattApiKey(ctx.modelRegistry)
+    if (!apiKey) return
+    const quotaResult = await fetchQuotas(apiKey)
+    if (quotaResult.success) emitQuotas(quotaResult.data.quotas, 'api')
+  })
 }
