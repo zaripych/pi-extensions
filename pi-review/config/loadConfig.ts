@@ -66,6 +66,7 @@ function buildObsoleteSystemPromptWarning(params: {
   lines.push(
     `Add a repository Instructions file with a *.review.md suffix to customize review rubrics.`
   )
+  lines.push(`You can use /skill:review-author to do that.`)
   return lines.join('\n')
 }
 
