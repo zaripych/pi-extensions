@@ -2,7 +2,7 @@ import { configureDependencies } from 'foundation/testing/harness/configureDepen
 import { configureHarnesses } from 'foundation/testing/harness/configureHarnesses'
 import { withDeps } from 'foundation/testing/harness/withDeps'
 import { setupLoadConfig } from '../config/loadConfig.harness'
-import { setupPickTarget } from './pickTarget.harness'
+import { setupCollectReviewParams } from './collectReviewParams.harness'
 import { setupResolveTarget } from './resolveTarget.harness'
 import { reviewCommand } from './reviewCommand'
 
@@ -10,7 +10,7 @@ export const setupReviewCommand = configureHarnesses(
   {
     inferTypesFrom: { defaultDeps: reviewCommand.defaultDeps },
   },
-  setupPickTarget,
+  setupCollectReviewParams,
   setupLoadConfig,
   setupResolveTarget,
   async (userDeps) => {
@@ -23,7 +23,6 @@ export const setupReviewCommand = configureHarnesses(
         runReviewSession: async () => ({
           output: {
             findings: [],
-            overall_correctness: 'patch is correct' as const,
             overall_explanation: 'No issues found.',
             overall_confidence_score: 0.9,
           } as const,

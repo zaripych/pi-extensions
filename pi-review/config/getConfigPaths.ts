@@ -9,7 +9,7 @@ export function getConfigPaths(deps = defaultDeps) {
   const agentDir = deps.getAgentDir()
   return {
     configPath: join(agentDir, 'review.yaml'),
-    systemPromptPath: join(agentDir, 'review-prompt.md'),
+    obsoleteSystemPromptPath: join(agentDir, 'review-prompt.md'),
   }
 }
 

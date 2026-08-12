@@ -8,8 +8,14 @@ export const setupPrepareReviewForm = configureHarnesses(
     inferTypesFrom: { defaultDeps: prepareReviewForm.defaultDeps },
   },
   setupGitCommands,
-  async (deps) => ({
-    ...deps,
-    prepareReviewForm: withDeps(prepareReviewForm, deps),
-  })
+  async (deps) => {
+    const fullDeps = {
+      ...deps,
+      findReviewInstructions: deps.findReviewInstructions ?? (async () => []),
+    }
+    return {
+      ...fullDeps,
+      prepareReviewForm: withDeps(prepareReviewForm, fullDeps),
+    }
+  }
 )

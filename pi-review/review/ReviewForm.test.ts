@@ -32,6 +32,7 @@ function reviewFormData() {
     ],
     models: ['openai/gpt-4o', 'anthropic/claude-sonnet-4-20250514'],
     defaultModel: 'openai/gpt-4o',
+    reviewInstructions: [],
   }
 }
 
@@ -99,16 +100,17 @@ describe('ReviewForm', () => {
     form.handleInput('\x1b[B')
     form.handleInput('\x1b[B')
     form.handleInput('\x1b[B')
+    form.handleInput('\x1b[B')
     form.handleInput('\r')
 
     expect(done).toHaveBeenCalledWith({
       target: { type: 'baseBranch', branch: 'origin/main' },
       modelId: 'openai/gpt-4o',
-      includeAgents: false,
+      includeAgentsMd: false,
     })
   })
 
-  it('toggling Include AGENTS.md submits includeAgents true', () => {
+  it('toggling Include AGENTS.md submits includeAgentsMd true', () => {
     const done = vi.fn()
     const form = new ReviewForm({
       form: reviewFormData(),
@@ -119,13 +121,14 @@ describe('ReviewForm', () => {
     form.handleInput('\x1b[B')
     form.handleInput('\x1b[B')
     form.handleInput('\x1b[B')
+    form.handleInput('\x1b[B')
     form.handleInput('\x1b[C')
     form.handleInput('\x1b[13;5u')
 
     expect(done).toHaveBeenCalledWith({
       target: { type: 'baseBranch', branch: 'origin/main' },
       modelId: 'openai/gpt-4o',
-      includeAgents: true,
+      includeAgentsMd: true,
     })
   })
 
@@ -137,6 +140,7 @@ describe('ReviewForm', () => {
       theme: plainTheme,
     })
 
+    form.handleInput('\x1b[B')
     form.handleInput('\x1b[B')
     form.handleInput('\x1b[B')
     form.handleInput('\x1b[B')
@@ -172,7 +176,7 @@ describe('ReviewForm', () => {
     expect(done).toHaveBeenCalledWith({
       target: { type: 'baseBranch', branch: 'origin/main' },
       modelId: 'openai/gpt-4o',
-      includeAgents: false,
+      includeAgentsMd: false,
     })
   })
 
@@ -232,6 +236,121 @@ describe('ReviewForm', () => {
     expect(renderText(form)).toContain('‹ origin/master ›')
   })
 
+  it('renders Instructions row defaulting to Correctness when no instruction files exist', () => {
+    const form = new ReviewForm({
+      form: reviewFormData(),
+      done: vi.fn(),
+      theme: plainTheme,
+    })
+
+    const text = renderText(form)
+    expect(text).toContain('Instructions')
+    expect(text).toContain('‹ Correctness ›')
+  })
+
+  it('left/right on Instructions stays on Correctness when no files exist', () => {
+    const form = new ReviewForm({
+      form: reviewFormData(),
+      done: vi.fn(),
+      theme: plainTheme,
+    })
+
+    form.handleInput('\x1b[B')
+    form.handleInput('\x1b[B')
+    form.handleInput('\x1b[C')
+
+    expect(renderText(form)).toContain('‹ Correctness ›')
+  })
+
+  it('defaults Instructions to Correctness when files exist', () => {
+    const form = new ReviewForm({
+      form: {
+        ...reviewFormData(),
+        reviewInstructions: [
+          { path: 'docs/security.review.md', content: 'focus on auth' },
+          { path: 'perf.review.md', content: 'focus on hot paths' },
+        ],
+      },
+      done: vi.fn(),
+      theme: plainTheme,
+    })
+
+    expect(renderText(form)).toContain('‹ Correctness ›')
+    expect(renderText(form)).not.toContain('docs/security.review.md')
+  })
+
+  it('right arrow on Instructions cycles to the first file', () => {
+    const form = new ReviewForm({
+      form: {
+        ...reviewFormData(),
+        reviewInstructions: [
+          { path: 'docs/security.review.md', content: 'focus on auth' },
+          { path: 'perf.review.md', content: 'focus on hot paths' },
+        ],
+      },
+      done: vi.fn(),
+      theme: plainTheme,
+    })
+
+    form.handleInput('\x1b[B')
+    form.handleInput('\x1b[B')
+    form.handleInput('\x1b[C')
+
+    expect(renderText(form)).toContain('‹ docs/security.review.md ›')
+  })
+
+  it('submits selected review instructions content alongside target prompt', () => {
+    const done = vi.fn()
+    const form = new ReviewForm({
+      form: {
+        ...reviewFormData(),
+        reviewInstructions: [
+          { path: 'docs/security.review.md', content: 'focus on auth' },
+        ],
+      },
+      done,
+      theme: plainTheme,
+    })
+
+    form.handleInput('\x1b[B')
+    form.handleInput('\x1b[B')
+    form.handleInput('\x1b[C')
+    form.handleInput('\x1b[13;5u')
+
+    expect(done).toHaveBeenCalledWith({
+      target: { type: 'baseBranch', branch: 'origin/main' },
+      modelId: 'openai/gpt-4o',
+      includeAgentsMd: false,
+      reviewInstructions: {
+        path: 'docs/security.review.md',
+        content: 'focus on auth',
+      },
+    })
+  })
+
+  it('submits without reviewInstructions when Correctness is selected', () => {
+    const done = vi.fn()
+    const form = new ReviewForm({
+      form: {
+        ...reviewFormData(),
+        reviewInstructions: [
+          { path: 'docs/security.review.md', content: 'focus on auth' },
+        ],
+      },
+      done,
+      theme: plainTheme,
+    })
+
+    form.handleInput('\x1b[13;5u')
+
+    expect(done).toHaveBeenCalledWith({
+      target: { type: 'baseBranch', branch: 'origin/main' },
+      modelId: 'openai/gpt-4o',
+      includeAgentsMd: false,
+      reviewInstructions: undefined,
+    })
+  })
+
   it('marks the selected row with a cursor', () => {
     const form = new ReviewForm({
       form: reviewFormData(),
@@ -244,6 +363,7 @@ describe('ReviewForm', () => {
     expect(form.render(80)).toEqual([
       expect.stringContaining('  Target'),
       expect.stringContaining('❯ Base'),
+      expect.stringContaining('  Instructions'),
       expect.stringContaining('  Model'),
       expect.stringContaining('  Include AGENTS.md'),
       expect.stringContaining('  Fetch origin'),

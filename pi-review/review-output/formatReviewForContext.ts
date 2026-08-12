@@ -33,15 +33,13 @@ export function formatReviewForContext(params: {
 }): string {
   const { output, cwd, modelId } = params
 
-  const verdict =
-    output.overall_correctness === 'patch is correct'
-      ? '**The patch is correct**'
-      : '**The patch is incorrect**'
+  const assessment =
+    output.findings.length > 0 ? 'Findings found' : 'No findings'
 
   const parts = [
     `## Code Review (${modelId})`,
     '',
-    `### Overall Assessment: ${verdict} — confidence ${output.overall_confidence_score}`,
+    `### Overall Assessment: ${assessment} — confidence ${output.overall_confidence_score}`,
     '',
     output.overall_explanation,
   ]

@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { renderTaskPrompt } from './renderTaskPrompt'
+import { renderTargetPrompt } from './renderTargetPrompt'
 
-describe('renderTaskPrompt', () => {
+describe('renderTargetPrompt', () => {
   it('renders uncommitted prompt', () => {
-    const result = renderTaskPrompt({ type: 'uncommitted' })
+    const result = renderTargetPrompt({ type: 'uncommitted' })
 
     expect(result).toContain('statusShort')
     expect(result).toContain('diffCached')
   })
 
-  it('renders custom target with verbatim instructions', () => {
-    const result = renderTaskPrompt({
-      type: 'custom',
+  it('renders freeform target with verbatim instructions', () => {
+    const result = renderTargetPrompt({
+      type: 'freeform',
       instructions: 'check error handling paths',
     })
 
@@ -19,7 +19,7 @@ describe('renderTaskPrompt', () => {
   })
 
   it('renders baseBranch prompt with branch and merge base', () => {
-    const result = renderTaskPrompt({
+    const result = renderTargetPrompt({
       type: 'baseBranch',
       baseBranch: 'main',
       mergeBaseSha: 'abc1234',
@@ -31,7 +31,7 @@ describe('renderTaskPrompt', () => {
   })
 
   it('renders baseBranch prompt via upstream when upstreamBranch is set', () => {
-    const result = renderTaskPrompt({
+    const result = renderTargetPrompt({
       type: 'baseBranch',
       baseBranch: 'feature/login',
       upstreamBranch: 'origin/feature/login',
@@ -46,7 +46,7 @@ describe('renderTaskPrompt', () => {
   })
 
   it('renders commit prompt with sha and title', () => {
-    const result = renderTaskPrompt({
+    const result = renderTargetPrompt({
       type: 'commit',
       sha: 'abc1234',
       title: 'fix: handle empty input',
@@ -56,7 +56,7 @@ describe('renderTaskPrompt', () => {
   })
 
   it('omits title when absent', () => {
-    const result = renderTaskPrompt({ type: 'commit', sha: 'def5678' })
+    const result = renderTargetPrompt({ type: 'commit', sha: 'def5678' })
 
     expect(result).toContain('commit def5678')
     expect(result).not.toContain('("')

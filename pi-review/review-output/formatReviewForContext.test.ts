@@ -15,7 +15,6 @@ const finding = {
 
 const base: ReviewOutput = {
   findings: [],
-  overall_correctness: 'patch is correct',
   overall_explanation: 'The patch looks good.',
   overall_confidence_score: 0.9,
 }
@@ -77,15 +76,25 @@ describe('formatReviewForContext', () => {
     expect(result).toContain('#### Fix null check')
   })
 
-  it('includes verdict and explanation', () => {
+  it('reports No findings when there are none', () => {
     const result = formatReviewForContext({
       output: base,
       cwd,
       modelId: 'openai/gpt-4o',
     })
 
-    expect(result).toContain('**The patch is correct**')
+    expect(result).toContain('No findings')
     expect(result).toContain('The patch looks good.')
+  })
+
+  it('reports Findings found when findings exist', () => {
+    const result = formatReviewForContext({
+      output: { ...base, findings: [finding] },
+      cwd,
+      modelId: 'test/model',
+    })
+
+    expect(result).toContain('Findings found')
   })
 
   it('includes model used for review', () => {
@@ -96,21 +105,6 @@ describe('formatReviewForContext', () => {
     })
 
     expect(result).toContain('openai/gpt-4o')
-  })
-
-  it('renders incorrect verdict', () => {
-    const incorrect: ReviewOutput = {
-      ...base,
-      overall_correctness: 'patch is incorrect',
-    }
-
-    const result = formatReviewForContext({
-      output: incorrect,
-      cwd,
-      modelId: 'test/model',
-    })
-
-    expect(result).toContain('**The patch is incorrect**')
   })
 
   it('includes finding body as markdown paragraph', () => {

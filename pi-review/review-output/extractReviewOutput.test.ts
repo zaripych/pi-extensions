@@ -4,7 +4,6 @@ import type { ReviewOutput } from './reviewOutputSchema'
 
 const validOutput: ReviewOutput = {
   findings: [],
-  overall_correctness: 'patch is correct',
   overall_explanation: 'No issues found.',
   overall_confidence_score: 0.95,
 }

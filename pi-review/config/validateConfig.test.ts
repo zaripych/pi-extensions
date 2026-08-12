@@ -15,10 +15,9 @@ describe('validateConfig', () => {
 
     expect(config).toEqual({
       tools: ['read', 'grep', 'find', 'ls'],
-      systemPrompt: 'review-prompt.md',
+      reviewInstructionsGlob: '**/*.review.md',
       thresholds: {
         minConfidence: 0.0,
-        maxPriority: 3,
       },
     })
   })
@@ -28,12 +27,19 @@ describe('validateConfig', () => {
 
     expect(config).toEqual({
       tools: ['read', 'grep', 'find', 'ls'],
-      systemPrompt: 'review-prompt.md',
+      reviewInstructionsGlob: '**/*.review.md',
       thresholds: {
         minConfidence: 0.0,
-        maxPriority: 3,
       },
     })
+  })
+
+  it('strips the obsolete systemPrompt key without error', () => {
+    const raw = parseDefault()
+    raw.systemPrompt = 'review-prompt.md'
+
+    const config = validateConfig(raw)
+    expect(config).not.toHaveProperty('systemPrompt')
   })
 
   it('rejects reviewer-git in tools as a reserved internal tool name', () => {
@@ -83,27 +89,6 @@ describe('validateConfig', () => {
     raw.thresholds.minConfidence = 1.5
 
     expect(() => validateConfig(raw)).toThrow('minConfidence')
-  })
-
-  it('rejects non-integer maxPriority', () => {
-    const raw = parseDefault()
-    raw.thresholds.maxPriority = 2.5
-
-    expect(() => validateConfig(raw)).toThrow('maxPriority')
-  })
-
-  it('rejects maxPriority below 0', () => {
-    const raw = parseDefault()
-    raw.thresholds.maxPriority = -1
-
-    expect(() => validateConfig(raw)).toThrow('maxPriority')
-  })
-
-  it('rejects maxPriority above 3', () => {
-    const raw = parseDefault()
-    raw.thresholds.maxPriority = 4
-
-    expect(() => validateConfig(raw)).toThrow('maxPriority')
   })
 
   it('accepts undefined model (missing from config)', () => {
@@ -163,5 +148,20 @@ describe('validateConfig', () => {
 
     const config = validateConfig(raw)
     expect(config.tools).toEqual(['read', 'bash', 'my_custom_tool'])
+  })
+
+  it('accepts a custom review instructions glob', () => {
+    const raw = parseDefault()
+    raw.reviewInstructionsGlob = 'docs/**/*.review.md'
+
+    const config = validateConfig(raw)
+    expect(config.reviewInstructionsGlob).toBe('docs/**/*.review.md')
+  })
+
+  it('rejects an empty review instructions glob', () => {
+    const raw = parseDefault()
+    raw.reviewInstructionsGlob = ''
+
+    expect(() => validateConfig(raw)).toThrow('reviewInstructionsGlob')
   })
 })

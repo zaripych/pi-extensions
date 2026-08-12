@@ -1,4 +1,3 @@
-import { StringEnum } from '@earendil-works/pi-ai'
 import { type Static, Type } from 'typebox'
 
 export const findingSchema = Type.Object({
@@ -18,7 +17,7 @@ export const findingSchema = Type.Object({
       minimum: 0,
       maximum: 3,
       description:
-        'P0 = drop-everything blocker; P1 = urgent; P2 = normal; P3 = nice-to-have.',
+        'Priority level, lower is more urgent. Instructions define the semantics.',
     })
   ),
   code_location: Type.Object(
@@ -43,12 +42,6 @@ export const findingSchema = Type.Object({
 
 export const reviewOutputSchema = Type.Object({
   findings: Type.Array(findingSchema, { maxItems: 50 }),
-  overall_correctness: StringEnum(
-    ['patch is correct', 'patch is incorrect'] as const,
-    {
-      description: 'Verdict on whether the patch is correct.',
-    }
-  ),
   overall_explanation: Type.String({
     description: '1-3 sentence summary of the review.',
   }),

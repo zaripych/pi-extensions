@@ -1,15 +1,15 @@
 import { configureHarnesses } from 'foundation/testing/harness/configureHarnesses'
 import { withDeps } from 'foundation/testing/harness/withDeps'
 import { setupPrepareReviewForm } from './prepareReviewForm.harness'
-import { pickTarget } from './pickTarget'
+import { collectReviewParams } from './collectReviewParams'
 
-export const setupPickTarget = configureHarnesses(
+export const setupCollectReviewParams = configureHarnesses(
   {
-    inferTypesFrom: { defaultDeps: pickTarget.defaultDeps },
+    inferTypesFrom: { defaultDeps: collectReviewParams.defaultDeps },
   },
   setupPrepareReviewForm,
   async (deps) => ({
     ...deps,
-    pickTarget: withDeps(pickTarget, deps),
+    collectReviewParams: withDeps(collectReviewParams, deps),
   })
 )

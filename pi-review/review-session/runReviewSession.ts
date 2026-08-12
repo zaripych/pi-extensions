@@ -1,9 +1,10 @@
 import { addAbortListener } from 'node:events'
+import type { Api, Model } from '@earendil-works/pi-ai'
 import {
   createAgentSession,
   DefaultResourceLoader,
   getAgentDir,
-  ModelRuntime,
+  type ModelRuntime,
   SessionManager,
   SettingsManager,
 } from '@earendil-works/pi-coding-agent'
@@ -32,8 +33,12 @@ export async function runReviewSession(params: {
   config: LoadedConfig
   cwd: string
   modelId: string
+  createModelRuntime: (modelId: string) => Promise<{
+    model: Model<Api> | undefined
+    modelRuntime: ModelRuntime
+  }>
   taskPrompt: string
-  includeAgents?: boolean
+  includeAgentsMd?: boolean
   signal?: AbortSignal
 }): Promise<
   { output: ReviewOutput } | { error: string } | { cancelled: true }
@@ -44,14 +49,7 @@ export async function runReviewSession(params: {
     return { cancelled: true }
   }
 
-  const [provider, ...rest] = modelId.split('/')
-  const id = rest.join('/')
-  if (!provider) {
-    throw new Error(`Invalid model ID format: ${modelId}`)
-  }
-
-  const modelRuntime = await ModelRuntime.create()
-  const model = modelRuntime.getModel(provider, id)
+  const { model, modelRuntime } = await params.createModelRuntime(modelId)
   if (!model) {
     throw new Error(`Model not found: ${modelId}`)
   }
@@ -64,9 +62,10 @@ export async function runReviewSession(params: {
     noExtensions: true,
     noSkills: true,
     noPromptTemplates: true,
-    noContextFiles: !params.includeAgents,
+    noContextFiles: !params.includeAgentsMd,
     systemPromptOverride: () => config.systemPromptContent,
   })
+
   await loader.reload()
 
   const sessionManager = SessionManager.create(cwd)

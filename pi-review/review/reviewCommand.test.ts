@@ -1,8 +1,18 @@
+import type { Api, Model } from '@earendil-works/pi-ai'
+import type { ModelRuntime } from '@earendil-works/pi-coding-agent'
 import { combineHarnesses } from 'foundation/testing/harness/combineHarnesses'
 import { describe, expect, it, vi } from 'vitest'
 import { setupReviewCommand } from './reviewCommand.harness'
 
 const setup = combineHarnesses(setupReviewCommand)
+
+type CreateModelRuntime = (modelId: string) => Promise<{
+  model: Model<Api> | undefined
+  modelRuntime: ModelRuntime
+}>
+
+const createModelRuntimeStub = (): CreateModelRuntime =>
+  vi.fn<CreateModelRuntime>()
 
 function passthroughLoader<T>({
   run,
@@ -23,13 +33,14 @@ function reviewCommandParams(params: { args: string; hasUI: boolean }) {
     notify: vi.fn(),
     runWithCancellableLoader: passthroughLoader,
     sendMessage: vi.fn(async () => {}),
+    createModelRuntime: createModelRuntimeStub(),
   }
 }
 
 describe('reviewCommand', () => {
   it('uses the model selected in the review form for the session', async () => {
     await using harness = await setup({
-      pickTarget: async () => ({
+      collectReviewParams: async () => ({
         target: { type: 'uncommitted' as const },
         modelId: 'openai/gpt-4o',
       }),
@@ -44,7 +55,7 @@ describe('reviewCommand', () => {
 
   it('cancelled selection returns cancelled', async () => {
     await using harness = await setup({
-      pickTarget: async () => 'cancelled',
+      collectReviewParams: async () => 'cancelled',
     })
 
     const result = await harness.reviewCommand(
@@ -57,7 +68,6 @@ describe('reviewCommand', () => {
   it('runs review session and returns output', async () => {
     const reviewOutput = {
       findings: [],
-      overall_correctness: 'patch is correct' as const,
       overall_explanation: 'Looks good.',
       overall_confidence_score: 0.95,
     }
@@ -113,8 +123,9 @@ describe('reviewCommand', () => {
       showReviewForm: async () => ({
         target: { type: 'baseBranch' as const, branch: 'main' },
         modelId: 'openai/gpt-4o',
-        includeAgents: true,
+        includeAgentsMd: true,
       }),
+      createModelRuntime: createModelRuntimeStub(),
       notify: vi.fn(),
       runWithCancellableLoader: passthroughLoader,
       sendMessage: vi.fn(async () => {}),
@@ -126,10 +137,98 @@ describe('reviewCommand', () => {
       expect.objectContaining({
         cwd: '/test/project',
         modelId: 'openai/gpt-4o',
-        includeAgents: true,
+        includeAgentsMd: true,
         taskPrompt: expect.stringMatching(
           /Review the code changes against the base branch 'main'[\s\S]*abc1234/u
         ),
+      })
+    )
+  })
+
+  it('appends review instructions content to the target prompt', async () => {
+    await using harness = await setup({
+      getMergeBaseForBranch: async () => 'abc1234',
+    })
+
+    const params = {
+      args: '',
+      cwd: '/test/project',
+      currentModelId: 'anthropic/claude-sonnet-4-20250514',
+      availableModelIds: [
+        'anthropic/claude-sonnet-4-20250514',
+        'openai/gpt-4o',
+      ],
+      hasUI: true,
+      showReviewForm: async () => ({
+        target: { type: 'baseBranch' as const, branch: 'main' },
+        modelId: 'openai/gpt-4o',
+        includeAgentsMd: false,
+        reviewInstructions: {
+          path: 'docs/security.review.md',
+          content: 'Focus on authentication and authorization flows.',
+        },
+      }),
+      createModelRuntime: createModelRuntimeStub(),
+      notify: vi.fn(),
+      runWithCancellableLoader: passthroughLoader,
+      sendMessage: vi.fn(async () => {}),
+    }
+
+    await harness.reviewCommand(params)
+
+    expect(harness.runReviewSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskPrompt: expect.stringContaining(
+          'Focus on authentication and authorization flows.'
+        ),
+      })
+    )
+    expect(harness.runReviewSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskPrompt: expect.stringContaining("the base branch 'main'"),
+      })
+    )
+    expect(params.notify).toHaveBeenCalledWith(
+      'Using review instructions: docs/security.review.md',
+      'info'
+    )
+  })
+
+  it('appends bundled correctness instructions and notifies Correctness when no file is selected', async () => {
+    await using harness = await setup({
+      getMergeBaseForBranch: async () => 'abc1234',
+    })
+
+    const params = {
+      args: '',
+      cwd: '/test/project',
+      currentModelId: 'anthropic/claude-sonnet-4-20250514',
+      availableModelIds: [
+        'anthropic/claude-sonnet-4-20250514',
+        'openai/gpt-4o',
+      ],
+      hasUI: true,
+      showReviewForm: async () => ({
+        target: { type: 'baseBranch' as const, branch: 'main' },
+        modelId: 'openai/gpt-4o',
+        includeAgentsMd: false,
+      }),
+      createModelRuntime: createModelRuntimeStub(),
+      notify: vi.fn(),
+      runWithCancellableLoader: passthroughLoader,
+      sendMessage: vi.fn(async () => {}),
+    }
+
+    await harness.reviewCommand(params)
+
+    expect(params.notify).toHaveBeenCalledWith(
+      'Using review instructions: Correctness',
+      'info'
+    )
+    const correctnessContent = await harness.getCorrectnessInstructionsContent()
+    expect(harness.runReviewSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskPrompt: expect.stringContaining(correctnessContent),
       })
     )
   })
@@ -157,7 +256,9 @@ describe('reviewCommand', () => {
 
   it('skips loader when hasUI is false', async () => {
     await using harness = await setup({
-      pickTarget: async () => ({ target: { type: 'uncommitted' as const } }),
+      collectReviewParams: async () => ({
+        target: { type: 'uncommitted' as const },
+      }),
     })
 
     let loaderCalled = false
@@ -180,16 +281,20 @@ describe('reviewCommand', () => {
 
   it('notifies with config error before running review', async () => {
     await using harness = await setup({
-      pickTarget: async () => ({ target: { type: 'uncommitted' as const } }),
+      collectReviewParams: async () => ({
+        target: { type: 'uncommitted' as const },
+      }),
       loadConfig: async () => ({
         config: {
           tools: ['read'],
-          systemPrompt: 'review-prompt.md',
+          reviewInstructionsGlob: '**/*.review.md',
           systemPromptContent: 'prompt',
-          thresholds: { minConfidence: 0, maxPriority: 3 },
+          correctnessInstructionsContent: 'correctness',
+          thresholds: { minConfidence: 0 },
         },
         configError:
           'Invalid review config:\n✖ bad field\nConfig path: /tmp/review.yaml',
+        warnings: [],
       }),
     })
 
@@ -208,7 +313,9 @@ describe('reviewCommand', () => {
 
   it('notifies with error when review session returns no output', async () => {
     await using harness = await setup({
-      pickTarget: async () => ({ target: { type: 'uncommitted' as const } }),
+      collectReviewParams: async () => ({
+        target: { type: 'uncommitted' as const },
+      }),
       runReviewSession: async () => ({
         error: 'An error occurred while processing your request.',
       }),
@@ -231,7 +338,9 @@ describe('reviewCommand', () => {
 
   it('cancelled review session returns cancelled without sending a review message', async () => {
     await using harness = await setup({
-      pickTarget: async () => ({ target: { type: 'uncommitted' as const } }),
+      collectReviewParams: async () => ({
+        target: { type: 'uncommitted' as const },
+      }),
       runReviewSession: async () => ({ cancelled: true as const }),
     })
 
@@ -239,7 +348,6 @@ describe('reviewCommand', () => {
     const result = await harness.reviewCommand(params)
 
     expect(result).toEqual({ cancelled: true })
-    expect(params.notify).not.toHaveBeenCalled()
     expect(params.sendMessage).not.toHaveBeenCalled()
   })
 })

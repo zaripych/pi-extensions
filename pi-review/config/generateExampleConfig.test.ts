@@ -22,8 +22,8 @@ describe('generateExampleConfig', () => {
     const yaml = generateExampleConfig()
 
     expect(yaml).toContain('- read')
-    expect(yaml).toContain('systemPrompt: review-prompt.md')
+    expect(yaml).toContain('reviewInstructionsGlob:')
+    expect(yaml).toContain('**/*.review.md')
     expect(yaml).toContain('minConfidence: 0')
-    expect(yaml).toContain('maxPriority: 3')
   })
 })

@@ -17,16 +17,16 @@ describe('resolveTarget', () => {
     expect(target).toEqual({ type: 'uncommitted' })
   })
 
-  it('returns custom instructions unchanged', async () => {
+  it('returns freeform instructions unchanged', async () => {
     await using harness = await setup()
 
     const target = await harness.resolveTarget({
-      target: { type: 'custom', instructions: 'check error handling paths' },
+      target: { type: 'freeform', instructions: 'check error handling paths' },
       cwd,
     })
 
     expect(target).toEqual({
-      type: 'custom',
+      type: 'freeform',
       instructions: 'check error handling paths',
     })
   })

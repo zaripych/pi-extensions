@@ -1,5 +1,7 @@
+import { readFile } from 'node:fs/promises'
+import { relative } from 'node:path'
+import fastGlob from 'fast-glob'
 import {
-  fetchOrigin,
   getCurrentBranch,
   getDefaultBranch,
   hasUncommittedChanges,
@@ -8,16 +10,35 @@ import {
 } from '../git/commands'
 import { selectReviewModel } from './selectReviewModel'
 
+async function findReviewInstructions(params: {
+  cwd: string
+  glob: string
+}): Promise<{ path: string; content: string }[]> {
+  const paths = await fastGlob(params.glob, {
+    cwd: params.cwd,
+    absolute: true,
+    ignore: ['**/node_modules/**'],
+  })
+  return Promise.all(
+    paths.map(async (absolutePath) => ({
+      path: relative(params.cwd, absolutePath),
+      content: await readFile(absolutePath, 'utf-8'),
+    }))
+  )
+}
+
 const defaultDeps = {
-  fetchOrigin,
   getCurrentBranch,
   getDefaultBranch,
   hasUncommittedChanges,
   listBranchesWithAuthors,
   listCommits,
+  findReviewInstructions,
 }
 
 export type ReviewFormTarget = 'uncommitted' | 'branch' | 'commit'
+
+export type ReviewInstructionFile = { path: string; content: string }
 
 export type ReviewFormData = {
   defaultTarget: ReviewFormTarget
@@ -27,7 +48,7 @@ export type ReviewFormData = {
   commits: { sha: string; title: string }[]
   models: string[]
   defaultModel: string
-  fetchWarning?: string
+  reviewInstructions: ReviewInstructionFile[]
 }
 
 function sortDefaultModelFirst(params: {
@@ -46,26 +67,20 @@ export async function prepareReviewForm(
     currentModelId: string | undefined
     availableModelIds: string[]
     modelConfig: { chooseFrom: string[] } | undefined
-    fetch: boolean
+    reviewInstructionsGlob: string
   },
   deps = defaultDeps
 ): Promise<ReviewFormData> {
   const { cwd } = params
 
-  let fetchWarning: string | undefined
-  if (params.fetch) {
-    try {
-      await deps.fetchOrigin({ cwd })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      fetchWarning = `Fetching origin failed, branch list may be stale: ${message}`
-    }
-  }
-
   const dirty = await deps.hasUncommittedChanges({ cwd })
   const currentBranch = await deps.getCurrentBranch({ cwd })
   const branches = await deps.listBranchesWithAuthors({ cwd })
   const commits = await deps.listCommits({ cwd })
+  const reviewInstructions = await deps.findReviewInstructions({
+    cwd,
+    glob: params.reviewInstructionsGlob,
+  })
 
   const branchNames = branches.map((branch) => branch.name)
   const defaultBranch =
@@ -106,7 +121,6 @@ export async function prepareReviewForm(
     branches: orderedBranches,
     defaultBase,
     defaultBranch,
-    fetchWarning,
     commits,
     models: sortDefaultModelFirst({
       availableModelIds: params.availableModelIds,
@@ -114,6 +128,7 @@ export async function prepareReviewForm(
       defaultModel,
     }),
     defaultModel,
+    reviewInstructions,
   }
 }
 

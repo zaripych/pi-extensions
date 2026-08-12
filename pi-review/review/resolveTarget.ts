@@ -1,6 +1,6 @@
 import { getMergeBase, getUpstreamBranch } from '../git/commands'
-import type { TargetSelection } from './pickTarget'
-import type { ReviewTarget } from './renderTaskPrompt'
+import type { TargetSelection } from './collectReviewParams'
+import type { ReviewTarget } from './renderTargetPrompt'
 
 const defaultDeps = {
   getMergeBaseForBranch: getMergeBase,
@@ -16,8 +16,8 @@ export async function resolveTarget(
   switch (target.type) {
     case 'uncommitted':
       return { type: 'uncommitted' }
-    case 'custom':
-      return { type: 'custom', instructions: target.instructions }
+    case 'freeform':
+      return { type: 'freeform', instructions: target.instructions }
     case 'commit':
       return { type: 'commit', sha: target.sha, title: target.title }
     case 'baseBranch':

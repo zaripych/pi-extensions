@@ -7,6 +7,7 @@ import {
 import { Container, Markdown, Text } from '@earendil-works/pi-tui'
 import { reviewCommand } from '../review/reviewCommand'
 import { ReviewForm, type ReviewFormResult } from '../review/ReviewForm'
+import { createModelRuntimeFromModelRegistry } from '../review-session/createModelRuntimeFromModelRegistry'
 import type { ReviewOutput } from '../review-output/reviewOutputSchema'
 
 export function registerReviewCommand(pi: ExtensionAPI) {
@@ -87,6 +88,9 @@ export function registerReviewCommand(pi: ExtensionAPI) {
                 }
               }
             ),
+          createModelRuntime: createModelRuntimeFromModelRegistry({
+            modelRegistry: ctx.modelRegistry,
+          }),
           notify: (message, level) => ctx.ui.notify(message, level),
           runWithCancellableLoader: async ({ description, run }) => {
             const outcome = await ctx.ui.custom<

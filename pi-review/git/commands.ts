@@ -94,9 +94,13 @@ export async function hasUncommittedChanges(params: {
   return stdout.trim() !== ''
 }
 
-export async function fetchOrigin(params: { cwd?: string }): Promise<void> {
+export async function fetchOrigin(params: {
+  cwd?: string
+  signal?: AbortSignal
+}): Promise<void> {
   await execFileAsync('git', ['fetch', 'origin'], {
     cwd: params.cwd,
+    signal: params.signal,
   })
 }
 

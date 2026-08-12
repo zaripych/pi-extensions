@@ -1,8 +1,8 @@
 import { combineHarnesses } from 'foundation/testing/harness/combineHarnesses'
 import { describe, expect, it, vi } from 'vitest'
-import { setupPickTarget } from './pickTarget.harness'
+import { setupCollectReviewParams } from './collectReviewParams.harness'
 
-const setup = combineHarnesses(setupPickTarget)
+const setup = combineHarnesses(setupCollectReviewParams)
 
 function passthroughLoader<T>({
   run,
@@ -13,7 +13,7 @@ function passthroughLoader<T>({
   return run({ signal: new AbortController().signal })
 }
 
-function pickTargetParams() {
+function collectReviewParamsInput() {
   return {
     args: '',
     cwd: '/test/project',
@@ -21,34 +21,63 @@ function pickTargetParams() {
     currentModelId: 'anthropic/claude-sonnet-4-20250514',
     availableModelIds: ['anthropic/claude-sonnet-4-20250514', 'openai/gpt-4o'],
     modelConfig: undefined,
+    reviewInstructionsGlob: '**/*.review.md',
     notify: vi.fn(),
     runWithCancellableLoader: passthroughLoader,
     showReviewForm: async () => undefined,
   }
 }
 
-describe('pickTarget', () => {
+describe('collectReviewParams', () => {
   it('returns uncommitted target when no args and no UI', async () => {
     await using harness = await setup()
 
-    const result = await harness.pickTarget({
-      ...pickTargetParams(),
+    const result = await harness.collectReviewParams({
+      ...collectReviewParamsInput(),
       hasUI: false,
     })
 
     expect(result).toEqual({ target: { type: 'uncommitted' } })
   })
 
-  it('returns custom target when args are provided', async () => {
+  it('passes review instructions from form selection through to result', async () => {
     await using harness = await setup()
 
-    const result = await harness.pickTarget({
-      ...pickTargetParams(),
+    const showReviewForm = vi.fn(async () => ({
+      target: { type: 'baseBranch' as const, branch: 'origin/main' },
+      modelId: 'openai/gpt-4o',
+      includeAgentsMd: false,
+      reviewInstructions: {
+        path: 'docs/security.review.md',
+        content: 'focus on auth',
+      },
+    }))
+    const result = await harness.collectReviewParams({
+      ...collectReviewParamsInput(),
+      showReviewForm,
+    })
+
+    expect(result).toEqual({
+      target: { type: 'baseBranch', branch: 'origin/main' },
+      modelId: 'openai/gpt-4o',
+      includeAgentsMd: false,
+      reviewInstructions: {
+        path: 'docs/security.review.md',
+        content: 'focus on auth',
+      },
+    })
+  })
+
+  it('returns freeform target when args are provided', async () => {
+    await using harness = await setup()
+
+    const result = await harness.collectReviewParams({
+      ...collectReviewParamsInput(),
       args: 'check for regressions',
     })
 
     expect(result).toEqual({
-      target: { type: 'custom', instructions: 'check for regressions' },
+      target: { type: 'freeform', instructions: 'check for regressions' },
     })
   })
 
@@ -58,10 +87,10 @@ describe('pickTarget', () => {
     const showReviewForm = vi.fn(async () => ({
       target: { type: 'baseBranch' as const, branch: 'origin/main' },
       modelId: 'openai/gpt-4o',
-      includeAgents: false,
+      includeAgentsMd: false,
     }))
-    const result = await harness.pickTarget({
-      ...pickTargetParams(),
+    const result = await harness.collectReviewParams({
+      ...collectReviewParamsInput(),
       showReviewForm,
     })
 
@@ -71,7 +100,7 @@ describe('pickTarget', () => {
     expect(result).toEqual({
       target: { type: 'baseBranch', branch: 'origin/main' },
       modelId: 'openai/gpt-4o',
-      includeAgents: false,
+      includeAgentsMd: false,
     })
   })
 
@@ -81,25 +110,18 @@ describe('pickTarget', () => {
     const selection = {
       target: { type: 'baseBranch' as const, branch: 'origin/main' },
       modelId: 'openai/gpt-4o',
-      includeAgents: false,
+      includeAgentsMd: false,
     }
     const showReviewForm = vi
       .fn()
       .mockResolvedValueOnce('fetch')
       .mockResolvedValueOnce(selection)
-    const result = await harness.pickTarget({
-      ...pickTargetParams(),
+    const result = await harness.collectReviewParams({
+      ...collectReviewParamsInput(),
       showReviewForm,
     })
 
-    expect(harness.prepareReviewForm).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ fetch: false })
-    )
-    expect(harness.prepareReviewForm).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ fetch: true })
-    )
+    expect(harness.fetchOrigin).toHaveBeenCalledTimes(1)
     expect(showReviewForm).toHaveBeenCalledTimes(2)
     expect(result).toEqual(selection)
   })
@@ -107,8 +129,8 @@ describe('pickTarget', () => {
   it('returns cancelled when the form is dismissed', async () => {
     await using harness = await setup()
 
-    const result = await harness.pickTarget({
-      ...pickTargetParams(),
+    const result = await harness.collectReviewParams({
+      ...collectReviewParamsInput(),
       showReviewForm: async () => undefined,
     })
 
@@ -123,17 +145,39 @@ describe('pickTarget', () => {
     })
 
     const params = {
-      ...pickTargetParams(),
+      ...collectReviewParamsInput(),
       showReviewForm: vi
         .fn()
         .mockResolvedValueOnce('fetch')
         .mockResolvedValueOnce(undefined),
     }
-    await harness.pickTarget(params)
+    await harness.collectReviewParams(params)
 
     expect(params.notify).toHaveBeenCalledWith(
       expect.stringContaining('could not resolve host'),
       'warning'
     )
+  })
+
+  it('does not warn and reopens the form when the fetch is aborted', async () => {
+    await using harness = await setup({
+      fetchOrigin: async () => {
+        const error = new Error('The operation was aborted')
+        error.name = 'AbortError'
+        throw error
+      },
+    })
+
+    const params = {
+      ...collectReviewParamsInput(),
+      showReviewForm: vi
+        .fn()
+        .mockResolvedValueOnce('fetch')
+        .mockResolvedValueOnce(undefined),
+    }
+    const result = await harness.collectReviewParams(params)
+
+    expect(params.notify).not.toHaveBeenCalled()
+    expect(result).toBe('cancelled')
   })
 })

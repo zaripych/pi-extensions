@@ -13,16 +13,17 @@ export const setupLoadConfig = configureHarnesses(
   async (userDeps) => {
     const tempDir = await mkdtemp(join(tmpdir(), 'pi-review-load-config-'))
     const configPath = join(tempDir, 'review.yaml')
-    const systemPromptPath = join(tempDir, 'review-prompt.md')
+    const obsoleteSystemPromptPath = join(tempDir, 'review-prompt.md')
     const deps = configureDependencies(
       { inferTypesFrom: { defaultDeps: loadConfig.defaultDeps }, userDeps },
       {
         getConfigPaths: () => ({
           configPath,
-          systemPromptPath,
+          obsoleteSystemPromptPath,
         }),
-        getDefaultSystemPromptContent:
-          loadConfig.defaultDeps.getDefaultSystemPromptContent,
+        getSystemPromptContent: loadConfig.defaultDeps.getSystemPromptContent,
+        getCorrectnessInstructionsContent:
+          loadConfig.defaultDeps.getCorrectnessInstructionsContent,
         readFile: loadConfig.defaultDeps.readFile,
         writeFile: loadConfig.defaultDeps.writeFile,
         mkdir: loadConfig.defaultDeps.mkdir,
@@ -33,7 +34,7 @@ export const setupLoadConfig = configureHarnesses(
     return {
       ...deps,
       configPath,
-      systemPromptPath,
+      obsoleteSystemPromptPath,
       loadConfig: withDeps(loadConfig, deps),
       async [Symbol.asyncDispose]() {
         await rm(tempDir, { recursive: true, force: true })

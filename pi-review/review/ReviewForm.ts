@@ -5,13 +5,18 @@ import {
   type SelectListTheme,
   truncateToWidth,
 } from '@earendil-works/pi-tui'
-import type { ReviewFormData, ReviewFormTarget } from './prepareReviewForm'
-import type { TargetSelection } from './pickTarget'
+import type {
+  ReviewFormData,
+  ReviewFormTarget,
+  ReviewInstructionFile,
+} from './prepareReviewForm'
+import type { TargetSelection } from './collectReviewParams'
 
 export type ReviewFormResult = {
   target: TargetSelection
   modelId: string
-  includeAgents: boolean
+  includeAgentsMd: boolean
+  reviewInstructions?: ReviewInstructionFile
 }
 
 export type ReviewFormTheme = {
@@ -34,6 +39,7 @@ type RowId =
   | 'target'
   | 'base'
   | 'commit'
+  | 'instructions'
   | 'model'
   | 'agents'
   | 'fetch'
@@ -49,7 +55,8 @@ export class ReviewForm {
   private baseIndex: number
   private commitIndex = 0
   private modelIndex: number
-  private includeAgents = false
+  private includeAgentsMd = false
+  private instructionsIndex = 0
   private selector: SelectList | null = null
 
   private done: (result: ReviewFormResult | 'fetch' | undefined) => void
@@ -91,6 +98,7 @@ export class ReviewForm {
       'target',
       ...(this.target === 'branch' ? ['base' as const] : []),
       ...(this.target === 'commit' ? ['commit' as const] : []),
+      'instructions',
       'model',
       'agents',
       'fetch',
@@ -98,7 +106,7 @@ export class ReviewForm {
     ]
   }
 
-  private rowText(row: RowId): { label: string; value: string } {
+  private rowText(row: RowId): { label: string; value: string; hint?: string } {
     switch (row) {
       case 'target':
         return { label: 'Target', value: targetLabels[this.target] }
@@ -116,6 +124,14 @@ export class ReviewForm {
           value: commit ? `${commit.sha} ${commit.title}` : '',
         }
       }
+      case 'instructions': {
+        const files = this.form.reviewInstructions
+        const value =
+          this.instructionsIndex === 0
+            ? 'Correctness'
+            : (files[this.instructionsIndex - 1]?.path ?? 'Correctness')
+        return { label: 'Instructions', value }
+      }
       case 'model':
         return {
           label: 'Model',
@@ -124,12 +140,12 @@ export class ReviewForm {
       case 'agents':
         return {
           label: 'Include AGENTS.md',
-          value: this.includeAgents ? 'Yes' : 'No',
+          value: this.includeAgentsMd ? 'Yes' : 'No',
         }
       case 'fetch':
         return { label: 'Fetch origin', value: '' }
       case 'start':
-        return { label: 'Start review', value: '' }
+        return { label: 'Start review', value: '', hint: '(Ctrl+Enter)' }
     }
   }
 
@@ -145,17 +161,27 @@ export class ReviewForm {
   private selection(): ReviewFormResult | undefined {
     const modelId = this.form.models[this.modelIndex]
     if (modelId === undefined) return undefined
-    const { includeAgents } = this
+    const { includeAgentsMd } = this
+    const reviewInstructions =
+      this.instructionsIndex === 0
+        ? undefined
+        : this.form.reviewInstructions[this.instructionsIndex - 1]
     switch (this.target) {
       case 'uncommitted':
-        return { target: { type: 'uncommitted' }, modelId, includeAgents }
+        return {
+          target: { type: 'uncommitted' },
+          modelId,
+          includeAgentsMd,
+          reviewInstructions,
+        }
       case 'branch': {
         const branch = this.form.branches[this.baseIndex]
         if (!branch) return undefined
         return {
           target: { type: 'baseBranch', branch: branch.name },
           modelId,
-          includeAgents,
+          includeAgentsMd,
+          reviewInstructions,
         }
       }
       case 'commit': {
@@ -164,7 +190,8 @@ export class ReviewForm {
         return {
           target: { type: 'commit', sha: commit.sha, title: commit.title },
           modelId,
-          includeAgents,
+          includeAgentsMd,
+          reviewInstructions,
         }
       }
     }
@@ -202,6 +229,16 @@ export class ReviewForm {
             this.commitIndex = index
           },
         }
+      case 'instructions': {
+        const files = this.form.reviewInstructions
+        return {
+          labels: ['Correctness', ...files.map((f) => f.path)],
+          index: this.instructionsIndex,
+          pick: (index) => {
+            this.instructionsIndex = index
+          },
+        }
+      }
       case 'model':
         return {
           labels: this.form.models,
@@ -213,9 +250,9 @@ export class ReviewForm {
       case 'agents':
         return {
           labels: ['No', 'Yes'],
-          index: this.includeAgents ? 1 : 0,
+          index: this.includeAgentsMd ? 1 : 0,
           pick: (index) => {
-            this.includeAgents = index === 1
+            this.includeAgentsMd = index === 1
           },
         }
     }
@@ -223,6 +260,7 @@ export class ReviewForm {
 
   private openSelector(rowId: SelectorRowId): void {
     const choices = this.selectorChoices(rowId)
+    if (choices.labels.length === 0) return
     const items = choices.labels.map((label, index) => ({
       value: String(index),
       label,
@@ -250,7 +288,8 @@ export class ReviewForm {
     }
   }
 
-  handleInput(data: string): void {
+  handleInput(input: string): void {
+    const data = matchesKey(input, Key.ctrl('c')) ? '\x1b' : input
     if (this.selector) {
       this.selector.handleInput(data)
       return
@@ -287,12 +326,15 @@ export class ReviewForm {
     }
     return this.rows().map((row, index) => {
       const selected = index === this.selectedRow
-      const { label, value } = this.rowText(row)
-      const labelPadded = label.padEnd(14)
+      const { label, value, hint } = this.rowText(row)
+      const labelPadded = label.padEnd(20)
       const valueText = value === '' ? '' : `‹ ${value} ›`
+      const trailing = hint
+        ? this.theme.hint(hint)
+        : this.theme.value(valueText, selected)
       const prefix = selected ? this.theme.cursor('❯ ') : '  '
       return truncateToWidth(
-        `${prefix}${this.theme.label(labelPadded, selected)}${this.theme.value(valueText, selected)}`,
+        `${prefix}${this.theme.label(labelPadded, selected)}${trailing}`,
         width
       )
     })

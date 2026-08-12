@@ -10,7 +10,7 @@ function prepareReviewFormParams() {
     currentModelId: 'anthropic/claude-sonnet-4-20250514',
     availableModelIds: ['anthropic/claude-sonnet-4-20250514', 'openai/gpt-4o'],
     modelConfig: undefined,
-    fetch: false,
+    reviewInstructionsGlob: '**/*.review.md',
   }
 }
 
@@ -193,32 +193,35 @@ describe('prepareReviewForm', () => {
     )
   })
 
-  it('does not fetch origin unless requested', async () => {
-    await using harness = await setup()
+  it('discovers review instruction files matching the glob under cwd', async () => {
+    await using harness = await setup({
+      findReviewInstructions: async () => [
+        {
+          path: 'docs/security.review.md',
+          content: 'focus on auth',
+        },
+        {
+          path: 'perf.review.md',
+          content: 'focus on hot paths',
+        },
+      ],
+    })
 
-    await harness.prepareReviewForm(prepareReviewFormParams())
+    const form = await harness.prepareReviewForm(prepareReviewFormParams())
 
-    expect(harness.fetchOrigin).not.toHaveBeenCalled()
+    expect(form.reviewInstructions).toEqual([
+      { path: 'docs/security.review.md', content: 'focus on auth' },
+      { path: 'perf.review.md', content: 'focus on hot paths' },
+    ])
   })
 
-  it('returns a fetch warning and still builds the form when fetchOrigin fails', async () => {
+  it('defaults to an empty review instructions list when none are found', async () => {
     await using harness = await setup({
-      fetchOrigin: async () => {
-        throw new Error('could not resolve host')
-      },
-      listBranchesWithAuthors: async () => [{ name: 'main', author: 'Bob' }],
+      findReviewInstructions: async () => [],
     })
 
-    const form = await harness.prepareReviewForm({
-      ...prepareReviewFormParams(),
-      fetch: true,
-    })
+    const form = await harness.prepareReviewForm(prepareReviewFormParams())
 
-    expect(form).toEqual(
-      expect.objectContaining({
-        fetchWarning: expect.stringContaining('could not resolve host'),
-        branches: [{ name: 'main', author: 'Bob' }],
-      })
-    )
+    expect(form.reviewInstructions).toEqual([])
   })
 })

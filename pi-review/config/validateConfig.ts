@@ -29,12 +29,12 @@ export const reviewConfigSchema = z.object({
         )
       }
     }),
-  systemPrompt: z
+  reviewInstructionsGlob: z
     .string()
     .min(1)
-    .default('review-prompt.md')
+    .default('**/*.review.md')
     .describe(
-      'Path to the system prompt file, relative to the config directory.'
+      'Glob pattern rooted at the review cwd for selecting reusable review instruction files.'
     ),
   thresholds: z
     .object({
@@ -46,16 +46,8 @@ export const reviewConfigSchema = z.object({
         .describe(
           'Minimum confidence score (0.0–1.0) for a finding to be included.'
         ),
-      maxPriority: z
-        .int()
-        .min(0)
-        .max(3)
-        .default(3)
-        .describe(
-          'Maximum priority level (0=blocker, 3=nice-to-have) for a finding to be included.'
-        ),
     })
-    .default({ minConfidence: 0, maxPriority: 3 })
+    .default({ minConfidence: 0 })
     .describe('Thresholds for filtering review findings.'),
 })
 
