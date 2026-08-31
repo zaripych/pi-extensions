@@ -2,6 +2,7 @@
   "name": "pi-extensions",
   "private": true,
   "scripts": {
+    "audit": "pnpm audit",
     "format": "prettier --write -u .",
     "lint": "oxlint",
     "lint-changed": "lint-staged --diff HEAD",
