@@ -13,12 +13,16 @@ import {
   type NeuralwattFeatureId,
   type NeuralwattQuotasUpdatedPayload,
 } from "../../src/events";
-import { fetchQuotas } from "../../src/lib/neuralwatt-api";
+import {
+  fetchNeuralwattModels,
+  fetchQuotas,
+} from "../../src/lib/neuralwatt-api";
 import type { NeuralwattQuotas } from "../../src/types/quota-api";
 import { getNeuralwattApiKey } from "../_shared/auth";
 import { registerNeuralwattSettings } from "./commands/settings";
 import { normalizeNeuralwattContextOverflowError } from "./context-overflow";
-import { getNeuralwattModels, refreshNeuralwattModels } from "./models";
+import { buildNeuralwattProviderModels } from "./models";
+import { createNeuralwattProvider } from "./provider";
 import { buildQuotasFromHeaders, fetchRequestedQuotas } from "./quota-store";
 import {
   type NeuralwattRateLimitInfo,
@@ -40,45 +44,30 @@ function registerNeuralwattProvider(
   pi: ExtensionAPI,
   onSseQuota: (line: string) => void,
 ): void {
-  const { provider: providerConfig } = configLoader.getConfig();
+  const staticModels = buildNeuralwattProviderModels();
 
-  const models = getNeuralwattModels({
-    includeLegacyModelIds: providerConfig.includeLegacyModelIds,
-    includeAliasedModelIds: providerConfig.includeAliasedModelIds,
-  });
+  const apiProvider = getApiProvider("openai-completions");
+  const baseStreamSimple = apiProvider?.streamSimple;
+  const streamSimple = baseStreamSimple
+    ? (wrapNeuralwattStreamSimple(
+        baseStreamSimple as never,
+        onSseQuota,
+      ) as never)
+    : undefined;
 
-  const config: Parameters<ExtensionAPI["registerProvider"]>[1] = {
-    name: "Neuralwatt",
-    baseUrl: "https://api.neuralwatt.com/v1",
-    apiKey: "$NEURALWATT_API_KEY",
-    api: "openai-completions",
-    authHeader: true,
-    headers: {
-      Referer: "https://pi.dev",
-      "X-Title": "npm:@aliou/pi-neuralwatt",
-    },
-    models,
-    refreshModels: (context) =>
-      refreshNeuralwattModels(context, {
-        includeLegacyModelIds:
-          configLoader.getConfig().provider.includeLegacyModelIds,
-        includeAliasedModelIds:
-          configLoader.getConfig().provider.includeAliasedModelIds,
-        includeEarlyAccessModels:
-          configLoader.getConfig().provider.includeEarlyAccessModels,
-      }),
-  };
-
-  const provider = getApiProvider("openai-completions");
-  const baseStreamSimple = provider?.streamSimple;
-  if (baseStreamSimple) {
-    config.streamSimple = wrapNeuralwattStreamSimple(
-      baseStreamSimple as never,
-      onSseQuota,
-    ) as never;
-  }
-
-  pi.registerProvider("neuralwatt", config);
+  pi.registerProvider(
+    createNeuralwattProvider(
+      staticModels,
+      async (apiKey, signal) => {
+        const result = await fetchNeuralwattModels(apiKey, signal);
+        if (!result.success) {
+          throw new Error("Neuralwatt models API request failed");
+        }
+        return result.data;
+      },
+      streamSimple,
+    ),
+  );
 }
 
 export default async function (pi: ExtensionAPI) {
@@ -100,31 +89,12 @@ export default async function (pi: ExtensionAPI) {
   };
 
   registerNeuralwattProvider(pi, handleSseQuota);
-  let registeredProviderSettings = {
-    ...configLoader.getConfig().provider,
-  };
 
   const loadedFeatures = new Set<NeuralwattFeatureId>();
 
   // Register settings in the provider so it is always available.
   registerNeuralwattSettings(pi, {
     getLoadedFeatures: () => loadedFeatures,
-  });
-
-  pi.events.on(NEURALWATT_CONFIG_UPDATED_EVENT, () => {
-    const next = configLoader.getConfig().provider;
-    if (
-      next.includeLegacyModelIds ===
-        registeredProviderSettings.includeLegacyModelIds &&
-      next.includeAliasedModelIds ===
-        registeredProviderSettings.includeAliasedModelIds &&
-      next.includeEarlyAccessModels ===
-        registeredProviderSettings.includeEarlyAccessModels
-    ) {
-      return;
-    }
-    registeredProviderSettings = { ...next };
-    registerNeuralwattProvider(pi, handleSseQuota);
   });
 
   let lastHeaderEmitAt = 0;

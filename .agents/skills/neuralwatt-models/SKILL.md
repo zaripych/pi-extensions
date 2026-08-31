@@ -1,20 +1,21 @@
 ---
 name: neuralwatt-models
-description: Update public or early-access model metadata for the pi-neuralwatt extension. Use when adding or refreshing entries in extensions/provider/models/public-models.ts or extensions/provider/models/early-access.ts, checking Neuralwatt model availability, or syncing hardcoded models with the live Neuralwatt API.
+description: Update the offline fallback model table for the pi-neuralwatt extension. Use when adding or refreshing entries in extensions/provider/models/public-models.ts, checking Neuralwatt model availability, or syncing the fallback with the live Neuralwatt API.
 ---
 
-# Update Neuralwatt models
+# Update Neuralwatt fallback models
 
-Update `extensions/provider/models/public-models.ts` from live Neuralwatt data, not guesswork.
+Keep `extensions/provider/models/public-models.ts` in sync with the live
+Neuralwatt API. This file is the offline fallback for first start; the live
+catalog is built from the API at runtime by `extensions/provider/models/catalog.ts`.
 
-`public-models.ts` is a declarative family/variant table. Each family holds the
-shared pricing, modalities, and `thinkingLevelMap`; each variant (`-fast`,
+`public-models.ts` is a declarative family/variant table. Each family holds
+shared pricing, modalities, and `reasoningMetadata`; each variant (`-fast`,
 `-flex`, `-short`, ...) only declares `id`, `name`, `contextWindow`,
-`maxOutputTokens`, `reasoning`, and any override. `buildNeuralwattModel` in
+`maxOutputTokens`, `reasoning`, and any override. `buildNeuralwattFamily` in
 `extensions/provider/models/build.ts` turns those into `ProviderModelConfig`
-values and is shared with early-access model discovery, so the compat defaults and the
-`maxTokens` rule live in exactly one place. Add variants to the existing family
-rather than copying a full model literal.
+values. Add variants to the existing family rather than copying a full model
+literal.
 
 ## Default behavior
 
@@ -23,14 +24,13 @@ Take initiative.
 Do not start by asking which model to update. First detect drift, then update whatever needs updating:
 
 1. Fetch live model data from `https://api.neuralwatt.com/v1/models`.
-2. Read the current hardcoded definitions in `extensions/provider/models/public-models.ts`.
-3. For each added base model, verify the active creator-scoped alias when one exists.
-4. Check Neuralwatt portal pages for pricing and capabilities when model additions or pricing/capability changes are needed.
-5. Reconcile the differences.
-6. Edit `extensions/provider/models/public-models.ts` and `extensions/provider/models/aliases.ts` when applicable.
-7. Run the relevant tests.
-8. Create a changeset when model metadata changed.
-9. Commit only the relevant files.
+2. Read the current fallback definitions in `extensions/provider/models/public-models.ts`.
+3. Check Neuralwatt portal pages for pricing and capabilities when model additions or pricing/capability changes are needed.
+4. Reconcile the differences.
+5. Edit `extensions/provider/models/public-models.ts`.
+6. Run the relevant tests.
+7. Create a changeset when model metadata changed.
+8. Commit only the relevant files.
 
 Only ask the user if there is a real blocker, such as an unreachable source, missing credentials for runtime validation, or conflicting evidence you cannot resolve.
 
@@ -41,12 +41,12 @@ Do not push.
 Use these in order:
 
 1. Neuralwatt models endpoint: `https://api.neuralwatt.com/v1/models`
-2. Existing test failures from `extensions/provider/models.test.ts`
+2. Drift reported by `pnpm check:models` (`scripts/check-models.ts`)
 3. Neuralwatt portal pages:
    - `https://portal.neuralwatt.com/models`
    - `https://portal.neuralwatt.com/pricing`
 4. Neuralwatt runtime behavior via direct `chat/completions` calls when needed
-5. Existing hardcoded definitions for fields the live sources do not expose
+5. Existing fallback definitions for fields the live sources do not expose
 
 ## Required workflow
 
@@ -55,10 +55,15 @@ Use these in order:
 Read:
 
 - `extensions/provider/models/public-models.ts`
-- `extensions/provider/models/aliases.ts`
-- `extensions/provider/models.test.ts`
+- `extensions/provider/models/catalog.ts` (override maps for flex pricing, context caps, compat, aliases)
+- `scripts/check-models.ts` (the drift comparison logic)
 
 Use the current file shape and comments as the formatting baseline.
+
+Run `pnpm check:models` to see current drift against the live API. It exits 1
+with a markdown report when the fallback has drifted, 0 when it matches. This
+is the same check the `model-sync` workflow runs twice daily to open an issue.
+The fallback is only the first-start seed, so drift is not a build blocker.
 
 ### 2) Fetch Neuralwatt endpoint data
 
@@ -90,19 +95,7 @@ curl -s https://api.neuralwatt.com/v1/models \
     }' --arg id 'provider/model-id'
 ```
 
-### 3) Verify active aliases
-
-Active creator-scoped IDs belong in `extensions/provider/models/aliases.ts`.
-Deprecated IDs that point at replacement models belong in
-`extensions/provider/models/legacy.ts`.
-
-When adding a base model, inspect `metadata.huggingface_id` from the
-authenticated Neuralwatt models endpoint when possible. Confirm the alias with a
-minimal `chat/completions` request and require a successful response for that
-exact model ID. Do not add aliases for `-short`, `-fast`, or `-flex` variants
-unless Neuralwatt explicitly exposes them.
-
-### 4) Check portal data when needed
+### 3) Check portal data when needed
 
 For pricing and capabilities, check:
 
@@ -113,7 +106,7 @@ Use browser/page extraction if needed. Do not invent pricing, image support, rea
 
 ## Field mapping
 
-The `/v1/models` endpoint now returns `metadata` with pricing, capabilities, and limits. When available, map from the API:
+The `/v1/models` endpoint returns `metadata` with pricing, capabilities, and limits. When available, map from the API:
 
 From top-level fields:
 - `id`
@@ -129,11 +122,11 @@ From `metadata.pricing`:
 From `metadata.capabilities`:
 - `vision` -> `input` (true = `["text", "image"]`, false = `["text"]`)
 - `reasoning` -> `reasoning`
-- `reasoning_effort` -> extra runtime evidence only; do not add legacy compat fields
+- `reasoning.supported_efforts` + `reasoning.mandatory` -> the Pi `thinkingLevelMap` via `buildThinkingLevelMap` (identity, no aliasing)
 - `developer_role` -> confirm `supportsDeveloperRole: false`
 
 From `metadata.limits`:
-- `max_output_tokens` -> `maxTokens` (null = use `max_model_len`, i.e. the full context window; never invent a cap)
+- `max_output_tokens` -> `maxTokens` (null = use `max_model_len`; never invent a cap)
 
 From `metadata`:
 - `display_name` -> `name`
@@ -147,11 +140,7 @@ standard variant, admitted on spare capacity. They are billed at a 0.65 multipli
 request to a `-flex` model silently falls back to standard tier and standard price.
 See https://portal.neuralwatt.com/docs/guides/flex-tier.
 
-Use portal data or existing conventions for:
-- `fast` (derived from `owned_by === "neuralwatt"` or `-fast` suffix)
-- comments above each model
-
-All Neuralwatt models should keep the provider compatibility defaults already used in this repo unless live behavior proves otherwise:
+All Neuralwatt models keep the provider compatibility defaults:
 
 ```ts
 compat: {
@@ -160,47 +149,12 @@ compat: {
 }
 ```
 
-Reasoning models should assign `thinkingLevelMap` at the model level and keep compat minimal. Only expose multiple Pi thinking levels when official Neuralwatt docs or runtime evidence confirms distinct level support:
-
-```ts
-thinkingLevelMap: {
-  minimal: "low",
-  low: "low",
-  medium: "medium",
-  high: "high",
-  xhigh: null,
-  max: null,
-},
-```
-
-When a model only has a binary or ambiguous thinking control, expose one known-good Pi thinking level:
-
-```ts
-thinkingLevelMap: {
-  minimal: null,
-  low: null,
-  medium: "medium",
-  high: null,
-  xhigh: null,
-  max: null,
-},
-```
-
-For models that expose a top `max` provider tier above `high` without a distinct `xhigh` (e.g. GLM-5.2, which natively supports `high` and `max` reasoning efforts), map Pi's `max` level to the provider's `max` value and leave `xhigh` as an unsupported hole. Pi introduced the `max` thinking level in 0.80.6:
-
-```ts
-thinkingLevelMap: {
-  off: "none",
-  minimal: null,
-  low: null,
-  medium: null,
-  high: "high",
-  xhigh: null,
-  max: "max",
-},
-```
-
-Omitting `max` (or any extended level) marks it unsupported. Only set `max` to a non-null provider value when the model actually distinguishes a top reasoning tier.
+Reasoning models assign `thinkingLevelMap` at the model level. The map is derived
+from the endpoint's `metadata.reasoning.supported_efforts` via `buildThinkingLevelMap`
+in `extensions/provider/models/build.ts`. Do not hand-write `thinkingLevelMap`
+literals on families. When the API exposes no `reasoning` block for a reasoning
+model, omit `reasoningMetadata` so the helper falls back to a high-only map with
+`off: null`.
 
 ## Decision rules
 
@@ -209,105 +163,11 @@ Omitting `max` (or any extended level) marks it unsupported. Only set `max` to a
 - Remove models only when they are truly gone from Neuralwatt, not because of a temporary fetch issue.
 - Set `contextWindow` from `max_model_len` on the Neuralwatt endpoint.
 - Keep pricing from the portal or existing pricing when the portal has not changed.
-- Set `maxTokens` to `metadata.limits.max_output_tokens ?? max_model_len`. Use `resolveMaxTokens` in `extensions/provider/models/build.ts`; do not hardcode a fallback.
+- Set `maxTokens` to `metadata.limits.max_output_tokens ?? max_model_len`. Use `resolveMaxTokens` in `extensions/provider/models/build.ts`.
+- Derive `thinkingLevelMap` from `metadata.reasoning` via `buildThinkingLevelMap`.
 - Keep `reasoning`, `input`, and `fast` from portal/runtime evidence or existing conventions when the API does not expose them.
 - Do not add `compat` fields beyond current repo conventions unless live behavior requires it.
 - Do not ask the user which models to update unless there is a true ambiguity you cannot resolve.
-
-## Adding early-access models
-
-Use this workflow when a model is available only to authenticated accounts or direct inference requests.
-
-### Choose the early-access model path
-
-First compare these two requests using the same credential:
-
-1. Fetch the authenticated `GET /v1/models` catalog.
-2. Send a minimal `POST /v1/chat/completions` request for the candidate model ID.
-
-Handle the result as follows:
-
-- If the authenticated catalog includes the model, dynamic discovery in `extensions/provider/models/early-access.ts` should load it. Add an override only when Pi-specific behavior is missing or incorrect.
-- If chat completions accepts the model but the authenticated catalog omits it, add a fully specified entry to `EARLY_ACCESS_NEURALWATT_MODELS` in `extensions/provider/models/early-access.ts`.
-- If chat completions rejects the model, do not add it. Test likely aliases before concluding that it is unavailable.
-- Never place an API-omitted model in `NEURALWATT_MODELS`. Public definitions are validated against the public catalog and are exposed regardless of `provider.includeEarlyAccessModels`.
-
-`refreshNeuralwattModels` merges hardcoded early-access models with cached and dynamically discovered models for online and offline startup. Public and legacy baseline definitions take precedence over early-access entries. Keep hardcoded early-access IDs unique, and remove or graduate an entry when Neuralwatt starts advertising it publicly.
-
-### Probe runtime behavior
-
-An API-omitted model has no trustworthy catalog metadata, so verify each configured capability directly:
-
-- Exact accepted model ID and the canonical model ID returned in the response.
-- Plain text and streaming.
-- System and developer roles separately.
-- Tool calling and JSON mode.
-- Image input with a recognizable image when claiming vision support.
-- Thinking disabled and enabled, including the exact request field and whether reasoning content appears.
-- Prompt caching by repeating a sufficiently long identical prefix and inspecting `usage.prompt_tokens_details.cached_tokens`.
-- Context and output limits from official model documentation, portal data, or bounded runtime tests.
-
-For binary thinking controlled through `chat_template_kwargs.enable_thinking`, use Pi's generic chat-template mapping rather than sending a fixed literal:
-
-```ts
-reasoning: true,
-thinkingLevelMap: {
-  minimal: null,
-  low: null,
-  medium: "medium",
-  high: null,
-  xhigh: null,
-  max: null,
-},
-compat: {
-  supportsDeveloperRole: false,
-  maxTokensField: "max_tokens",
-  thinkingFormat: "chat-template",
-  chatTemplateKwargs: {
-    enable_thinking: { $var: "thinking.enabled" },
-  },
-},
-```
-
-Only use this shape after direct requests prove that the model accepts `chat_template_kwargs.enable_thinking`. Use the model's actual role behavior instead of copying `supportsDeveloperRole` from another model.
-
-### Determine pricing carefully
-
-Neuralwatt accounts can use energy-based billing. On those accounts, `x-request-cost-usd`, `x-cache-savings-usd`, and usage totals measure energy billing and do not by themselves establish token prices. Do not derive `cost.input`, `cost.output`, or `cost.cacheRead` from one energy-billed request.
-
-Prefer, in order:
-
-1. Neuralwatt portal pricing.
-2. Neuralwatt model metadata when it becomes available.
-3. Consistent official upstream or provider pricing corroborated by multiple controlled probes.
-
-Document uncertainty in the implementation comment when pricing remains inferred. Confirm cache reads through token usage even when the cache-savings header remains zero.
-
-### Implement and verify
-
-Read and update:
-
-- `extensions/provider/models/early-access.ts`
-- `extensions/provider/models/refresh.ts`
-- `extensions/provider/models/refresh.test.ts`
-- `extensions/provider/models/index.ts` when a new early-access model collection must be exported
-
-Add tests that prove:
-
-1. The hardcoded early-access model appears and is persisted when `includeEarlyAccessModels` is enabled, even when discovery returns an empty list.
-2. The model is absent when `includeEarlyAccessModels` is disabled.
-3. The exact runtime-critical config is preserved: modalities, reasoning mapping, compat fields, context, output limit, and costs.
-4. Public models retain precedence on ID collisions.
-
-Run the complete model checks because public-catalog validation must remain unchanged:
-
-```bash
-pnpm typecheck
-pnpm lint
-pnpm test
-```
-
-Create a patch changeset for the package and stage only the early-access model implementation, tests, and changeset.
 
 ## Required runtime checks
 
@@ -363,11 +223,12 @@ If Neuralwatt rejects image input, keep `input: ["text"]`.
 When model metadata changed:
 
 1. Create a changeset with `pnpm changeset` or write a valid changeset manually.
-2. Use a patch bump for routine model metadata updates.
+2. Use a patch bump for model syncs (additions, removals, and metadata updates).
 3. Re-run verification before committing:
 
 ```bash
-pnpm test -- extensions/provider/models.test.ts
+pnpm check:models
+pnpm test
 pnpm typecheck
 pnpm lint
 ```
@@ -401,7 +262,9 @@ When done, summarize:
 Use these exact paths in this repo:
 
 - `extensions/provider/models/public-models.ts`
-- `extensions/provider/models/early-access.ts`
+- `extensions/provider/models/catalog.ts`
+- `extensions/provider/models/build.ts`
 - `extensions/provider/models/refresh.ts`
 - `extensions/provider/models/refresh.test.ts`
-- `extensions/provider/models.test.ts`
+- `extensions/provider/models.test.ts` (deterministic invariant + derivation tests)
+- `scripts/check-models.ts` (live-API drift check, run on a schedule)

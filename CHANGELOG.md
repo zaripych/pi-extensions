@@ -1,5 +1,79 @@
 # @aliou/pi-extension-template
 
+## 0.15.2
+
+### Patch Changes
+
+- d11a13b: Add `glm-5.3` to the offline fallback model table to match the live Neuralwatt API: GLM-5.2 pricing parity (1.45/4.5/0.145), 1M context, mandatory reasoning with `max`/`high`/`low` efforts and no `off` level.
+
+## 0.15.1
+
+### Patch Changes
+
+- bb3898c: Stop the "legacy model IDs are disabled" warning from reappearing on every startup.
+
+  The `disable-legacy-model-ids-by-default` migration gated on the absence of a top-level `includeLegacyModelIds` key instead of the stamped config version. On any already-nested config that key is always absent, so the migration re-ran each load: it re-injected the key, the flat-to-nested migration stripped it back out, the config was rewritten, and the warning fired again. The migration is removed because nothing reads `includeLegacyModelIds` anymore.
+
+- 7a017cb: Sync the Kimi K2.7 Code fallback reasoning metadata with the live API.
+
+  The API now reports mandatory reasoning with no selectable efforts (`supported_efforts: []`) for the Kimi K2.7 Code family, so every thinking level is nulled out instead of falling back to a high-only map.
+
+## 0.15.0
+
+### Minor Changes
+
+- b3caf85: Build the model catalog from the live `/v1/models` response instead of local visibility buckets.
+
+  Model refresh now fetches anonymously when no API key is configured, builds the catalog with overrides for Flex pricing, Kimi K3 context, Qwen chat-template compatibility, and aliases, persists successful results, and falls back to the bundled public models on failure. The `provider.includeLegacyModelIds`, `provider.includeAliasedModelIds`, and `provider.includeEarlyAccessModels` settings are removed because model visibility now comes from the API.
+
+## 0.14.2
+
+### Patch Changes
+
+- bb8ac4f: Keep Neuralwatt listed in `/model` without an API key. `check` returned `undefined` when no key existed, so pi's availability gate filtered the provider out even though `resolve` already falls back to an anonymous credential (anonymous playground traffic authenticates at stream time, and aperture proxy mode authenticates gateway-side). `check` now returns that same anonymous credential.
+- c02410e: Add Qwen3.8 27B FP8 as an early-access model
+
+  Qwen/Qwen3.8-27B-FP8 is a pre-release dense 27B vision-language model with
+  MTP speculative decoding and native 262K context, served on 2x H200. It is
+  returned by the authenticated /v1/models catalog but absent from the public
+  endpoint, so it is gated by `provider.includeEarlyAccessModels`. Binary
+  thinking is toggled through `chat_template_kwargs.enable_thinking`
+  (`thinkingFormat: "chat-template"`); the API exposes no `reasoning` block, so
+  the thinking level map is the high-only fallback with `off: null`.
+
+  https://huggingface.co/Qwen/Qwen3.8-27B-FP8
+
+## 0.14.1
+
+### Patch Changes
+
+- 266caa8: Cap all Kimi K3 variants (`kimi-k3`, `kimi-k3-fast`, `kimi-k3-flex`) at the 327,680-token serving limit. The API advertises a 1,048,560-token context with no output cap, but the endpoint rejects requests above 327,680 total tokens with a 400, and Pi's derived `max_completion_tokens` (context window minus prompt tokens) overshot the cap. The drift check now whitelists this intentional divergence via `CONTEXT_WINDOW_OVERRIDES` and flags it as stale once the API metadata matches the serving limit again.
+
+## 0.14.0
+
+### Minor Changes
+
+- 36ece2d: Register the Neuralwatt provider as a complete pi-ai `Provider` via `pi.registerProvider(provider)` instead of the name-plus-config form, with auth resolution that falls back to an anonymous credential so the model catalog refreshes without an API key.
+
+## 0.13.0
+
+### Minor Changes
+
+- d58a55f: Derive reasoning levels from the endpoint's `supported_efforts`.
+
+  `thinkingLevelMap` is now built by identity from each model's
+  `metadata.reasoning.supported_efforts` (plus `mandatory`) via a single
+  `buildThinkingLevelMap` helper, instead of hand-tuned per-family constants.
+  Early-access models read the live `metadata.reasoning` block through the same
+  helper. `default_effort` and `effort_aliases` are no longer consumed.
+
+  Behavior changes for the public catalog:
+
+  - DeepSeek V4 Flash: `low` is no longer exposed (the API aliases it to `high`;
+    identity mapping drops it).
+  - Kimi K3: `off` is now exposed (`mandatory: false` upstream).
+  - Kimi K2.7 Code: high-only fallback map, unchanged in effect.
+
 ## 0.12.1
 
 ### Patch Changes
