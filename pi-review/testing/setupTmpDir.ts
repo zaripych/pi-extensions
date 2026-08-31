@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { faker } from '@faker-js/faker'
 
 export async function setupTmpDir() {
@@ -10,7 +10,9 @@ export async function setupTmpDir() {
   return {
     tmpDir: () => dir,
     createTempFile: async (
-      params: { content: string } | { randomTextLength: number }
+      params: ({ content: string } | { randomTextLength: number }) & {
+        fileName?: string
+      }
     ): Promise<{ filePath: string }> => {
       const content =
         'content' in params
@@ -18,7 +20,12 @@ export async function setupTmpDir() {
           : faker.lorem
               .paragraphs({ min: 1, max: 5 })
               .slice(0, params.randomTextLength)
-      const filePath = join(dir, `${randomBytes(8).toString('hex')}.txt`)
+      const filePath = join(
+        dir,
+        params.fileName ?? `${randomBytes(8).toString('hex')}.txt`
+      )
+      const directory = dirname(filePath)
+      await mkdir(directory, { recursive: true })
       await writeFile(filePath, content)
       return { filePath }
     },

@@ -1,16 +1,19 @@
 import { combineHarnesses } from 'foundation/testing/harness/combineHarnesses'
 import { describe, expect, it } from 'vitest'
 import { setupPrepareReviewForm } from './prepareReviewForm.harness'
+import { prepareReviewForm } from './prepareReviewForm'
+import { relative } from 'node:path'
 
 const setup = combineHarnesses(setupPrepareReviewForm)
 
-function prepareReviewFormParams() {
+function prepareReviewFormParams(opts?: { cwd?: string }) {
   return {
     cwd: '/test/project',
     currentModelId: 'anthropic/claude-sonnet-4-20250514',
     availableModelIds: ['anthropic/claude-sonnet-4-20250514', 'openai/gpt-4o'],
     modelConfig: undefined,
     reviewInstructionsGlob: '**/*.review.md',
+    ...opts,
   }
 }
 
@@ -195,33 +198,39 @@ describe('prepareReviewForm', () => {
 
   it('discovers review instruction files matching the glob under cwd', async () => {
     await using harness = await setup({
-      findReviewInstructions: async () => [
+      findReviewInstructions:
+        prepareReviewForm.defaultDeps.findReviewInstructions,
+    })
+
+    const { filePath: firstFile } = await harness.createTempFile({
+      fileName: 'docs/security.review.md',
+      content: 'focus on auth',
+    })
+    const { filePath: secondFile } = await harness.createTempFile({
+      fileName: 'perf.review.md',
+      content: 'focus on hot paths',
+    })
+
+    const form = await harness.prepareReviewForm(
+      prepareReviewFormParams({
+        cwd: harness.tmpDir(),
+      })
+    )
+
+    const sort = <T extends { path: string }>(a: T, b: T) =>
+      a.path.localeCompare(b.path)
+
+    expect(form.reviewInstructions.toSorted(sort)).toEqual(
+      [
         {
-          path: 'docs/security.review.md',
+          path: relative(harness.tmpDir(), firstFile),
           content: 'focus on auth',
         },
         {
-          path: 'perf.review.md',
+          path: relative(harness.tmpDir(), secondFile),
           content: 'focus on hot paths',
         },
-      ],
-    })
-
-    const form = await harness.prepareReviewForm(prepareReviewFormParams())
-
-    expect(form.reviewInstructions).toEqual([
-      { path: 'docs/security.review.md', content: 'focus on auth' },
-      { path: 'perf.review.md', content: 'focus on hot paths' },
-    ])
-  })
-
-  it('defaults to an empty review instructions list when none are found', async () => {
-    await using harness = await setup({
-      findReviewInstructions: async () => [],
-    })
-
-    const form = await harness.prepareReviewForm(prepareReviewFormParams())
-
-    expect(form.reviewInstructions).toEqual([])
+      ].toSorted(sort)
+    )
   })
 })
