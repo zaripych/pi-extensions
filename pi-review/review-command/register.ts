@@ -34,7 +34,7 @@ export function registerReviewCommand(pi: ExtensionAPI) {
             .map((m) => `${m.provider}/${m.id}`),
           hasUI: ctx.hasUI,
           showReviewForm: (form) =>
-            ctx.ui.custom<ReviewFormResult | 'fetch' | undefined>(
+            ctx.ui.custom<ReviewFormResult | undefined>(
               (tui, theme, _kb, done) => {
                 const container = new Container()
                 container.addChild(

@@ -147,7 +147,31 @@ describe('ReviewForm', () => {
     form.handleInput('\x1b[B')
     form.handleInput('\r')
 
-    expect(done).toHaveBeenCalledWith('fetch')
+    expect(done).toHaveBeenCalledWith({
+      action: 'fetch',
+      customReviewTarget: '',
+      selectedTarget: 'branch',
+    })
+  })
+
+  it('includes the selected target and custom review target when fetching', () => {
+    const done = vi.fn()
+    const form = new ReviewForm({
+      form: { ...reviewFormData(), customReviewTarget: 'review auth' },
+      done,
+      theme: plainTheme,
+    })
+
+    for (let i = 0; i < 5; i++) {
+      form.handleInput('\x1b[B')
+    }
+    form.handleInput('\r')
+
+    expect(done).toHaveBeenCalledWith({
+      action: 'fetch',
+      customReviewTarget: 'review auth',
+      selectedTarget: 'branch',
+    })
   })
 
   it('escape cancels the form', () => {
@@ -349,6 +373,149 @@ describe('ReviewForm', () => {
       includeAgentsMd: false,
       reviewInstructions: undefined,
     })
+  })
+
+  it('keeps the editor open and shows an error for empty instructions', () => {
+    const form = new ReviewForm({
+      form: reviewFormData(),
+      done: vi.fn(),
+      theme: plainTheme,
+    })
+
+    form.handleInput('\r')
+    form.handleInput('\x1b[B')
+    form.handleInput('\x1b[B')
+    form.handleInput('\r')
+    form.handleInput('   ')
+    form.handleInput('\r')
+
+    const text = renderText(form)
+    expect(text).toContain('What to review')
+    expect(text).toContain('Instructions cannot be empty')
+    expect(text).not.toContain('Start review')
+  })
+
+  it('escape discards editor edits and returns to the form', () => {
+    const done = vi.fn()
+    const form = new ReviewForm({
+      form: reviewFormData(),
+      done,
+      theme: plainTheme,
+    })
+
+    form.handleInput('\r')
+    form.handleInput('\x1b[B')
+    form.handleInput('\x1b[B')
+    form.handleInput('\r')
+    form.handleInput('review auth')
+    form.handleInput('\x1b')
+
+    const text = renderText(form)
+    expect(done).not.toHaveBeenCalled()
+    expect(text).toContain('Branch changes')
+    expect(text).not.toContain('Other (directory/file/etc)')
+  })
+
+  it('starts with Freeform selected and Start row focused when instructions are provided', () => {
+    const form = new ReviewForm({
+      form: {
+        ...reviewFormData(),
+        defaultTarget: 'freeform',
+        customReviewTarget: 'review login',
+      },
+      done: vi.fn(),
+      theme: plainTheme,
+    })
+
+    expect(renderText(form)).toContain(
+      'Other (directory/file/etc) — review login'
+    )
+    expect(form.render(80).at(-1)).toContain('❯ Start review')
+  })
+
+  it('submits a freeform target with the confirmed instructions', () => {
+    const done = vi.fn()
+    const form = new ReviewForm({
+      form: {
+        ...reviewFormData(),
+        defaultTarget: 'freeform',
+        customReviewTarget: 'review migration',
+      },
+      done,
+      theme: plainTheme,
+    })
+
+    form.handleInput('\r')
+
+    expect(done).toHaveBeenCalledWith({
+      target: { type: 'freeform', instructions: 'review migration' },
+      modelId: 'openai/gpt-4o',
+      includeAgentsMd: false,
+    })
+  })
+
+  it('freeform is not reachable through left/right until confirmed', () => {
+    const form = new ReviewForm({
+      form: reviewFormData(),
+      done: vi.fn(),
+      theme: plainTheme,
+    })
+
+    form.handleInput('\x1b[C')
+    expect(renderText(form)).toContain('Commit')
+    form.handleInput('\x1b[C')
+    expect(renderText(form)).toContain('Uncommitted changes')
+    expect(renderText(form)).not.toContain('Other (directory/file/etc)')
+  })
+
+  it('left/right reaches Freeform after a value is confirmed and retains it', () => {
+    const form = new ReviewForm({
+      form: reviewFormData(),
+      done: vi.fn(),
+      theme: plainTheme,
+    })
+
+    form.handleInput('\r')
+    form.handleInput('\x1b[B')
+    form.handleInput('\x1b[B')
+    form.handleInput('\r')
+    form.handleInput('review auth')
+    form.handleInput('\r')
+
+    form.handleInput('\x1b[D')
+    expect(renderText(form)).toContain('Commit')
+    form.handleInput('\x1b[C')
+    expect(renderText(form)).toContain(
+      'Other (directory/file/etc) — review auth'
+    )
+  })
+
+  it('reopens the editor with the confirmed value when Freeform is selected', () => {
+    const form = new ReviewForm({
+      form: {
+        ...reviewFormData(),
+        defaultTarget: 'freeform',
+        customReviewTarget: 'review login',
+      },
+      done: vi.fn(),
+      theme: plainTheme,
+    })
+
+    for (let i = 0; i < 5; i++) {
+      form.handleInput('\x1b[A')
+    }
+    form.handleInput('\r')
+
+    const editorText = renderText(form)
+    expect(editorText).toContain('What to review')
+    expect(editorText).not.toContain('Start review')
+
+    form.handleInput(' updated')
+    form.handleInput('\r')
+
+    expect(renderText(form)).toContain(
+      'Other (directory/file/etc) — review login updated'
+    )
   })
 
   it('marks the selected row with a cursor', () => {

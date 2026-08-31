@@ -36,7 +36,7 @@ const defaultDeps = {
   findReviewInstructions,
 }
 
-export type ReviewFormTarget = 'uncommitted' | 'branch' | 'commit'
+export type ReviewFormTarget = 'uncommitted' | 'branch' | 'commit' | 'freeform'
 
 export type ReviewInstructionFile = { path: string; content: string }
 
@@ -49,6 +49,7 @@ export type ReviewFormData = {
   models: string[]
   defaultModel: string
   reviewInstructions: ReviewInstructionFile[]
+  customReviewTarget?: string
 }
 
 function sortDefaultModelFirst(params: {

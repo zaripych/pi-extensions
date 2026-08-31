@@ -32,7 +32,7 @@ interface CollectReviewParamsInput {
   }) => Promise<T>
   showReviewForm: (
     form: ReviewFormData
-  ) => Promise<ReviewFormResult | 'fetch' | undefined>
+  ) => Promise<ReviewFormResult | undefined>
 }
 
 export type ReviewParams =
@@ -48,14 +48,16 @@ export async function collectReviewParams(
   params: CollectReviewParamsInput,
   deps = defaultDeps
 ): Promise<ReviewParams> {
-  if (params.args !== '') {
-    return { target: { type: 'freeform', instructions: params.args } }
-  }
-
   if (!params.hasUI) {
+    if (params.args.trim() !== '') {
+      return { target: { type: 'freeform', instructions: params.args.trim() } }
+    }
     return { target: { type: 'uncommitted' } }
   }
 
+  let customReviewTarget = params.args.trim()
+  let selectedTarget: ReviewFormData['defaultTarget'] | undefined =
+    customReviewTarget === '' ? undefined : 'freeform'
   let fetch = false
   for (;;) {
     if (fetch) {
@@ -87,11 +89,20 @@ export async function collectReviewParams(
         }),
     })
 
-    const result = await params.showReviewForm(form)
+    const displayForm = {
+      ...form,
+      ...(customReviewTarget === '' ? {} : { customReviewTarget }),
+      ...(selectedTarget === undefined
+        ? {}
+        : { defaultTarget: selectedTarget }),
+    }
+    const result = await params.showReviewForm(displayForm)
     if (result === undefined) {
       return 'cancelled'
     }
-    if (result === 'fetch') {
+    if ('action' in result) {
+      customReviewTarget = result.customReviewTarget
+      selectedTarget = result.selectedTarget
       fetch = true
       continue
     }

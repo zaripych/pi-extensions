@@ -75,10 +75,17 @@ describe('reviewCommand', () => {
       runReviewSession: async () => ({ output: reviewOutput }),
     })
 
-    const params = reviewCommandParams({
-      args: 'check error handling',
-      hasUI: true,
-    })
+    const params = {
+      ...reviewCommandParams({ args: 'check error handling', hasUI: true }),
+      showReviewForm: async () => ({
+        target: {
+          type: 'freeform' as const,
+          instructions: 'check error handling',
+        },
+        modelId: 'openai/gpt-4o',
+        includeAgentsMd: false,
+      }),
+    }
     const result = await harness.reviewCommand(params)
 
     expect(result).toEqual(
@@ -92,10 +99,17 @@ describe('reviewCommand', () => {
   it('sends review message with formatted content', async () => {
     await using harness = await setup()
 
-    const params = reviewCommandParams({
-      args: 'check error handling',
-      hasUI: true,
-    })
+    const params = {
+      ...reviewCommandParams({ args: 'check error handling', hasUI: true }),
+      showReviewForm: async () => ({
+        target: {
+          type: 'freeform' as const,
+          instructions: 'check error handling',
+        },
+        modelId: 'openai/gpt-4o',
+        includeAgentsMd: false,
+      }),
+    }
     await harness.reviewCommand(params)
 
     expect(params.sendMessage).toHaveBeenCalledWith(
@@ -199,7 +213,9 @@ describe('reviewCommand', () => {
       getMergeBaseForBranch: async () => 'abc1234',
     })
 
-    const params = {
+    const notify = vi.fn()
+
+    await harness.reviewCommand({
       args: '',
       cwd: '/test/project',
       currentModelId: 'anthropic/claude-sonnet-4-20250514',
@@ -214,14 +230,12 @@ describe('reviewCommand', () => {
         includeAgentsMd: false,
       }),
       createModelRuntime: createModelRuntimeStub(),
-      notify: vi.fn(),
+      notify,
       runWithCancellableLoader: passthroughLoader,
-      sendMessage: vi.fn(async () => {}),
-    }
+      sendMessage: vi.fn(),
+    })
 
-    await harness.reviewCommand(params)
-
-    expect(params.notify).toHaveBeenCalledWith(
+    expect(notify).toHaveBeenCalledWith(
       'Using review instructions: Correctness',
       'info'
     )
@@ -237,17 +251,18 @@ describe('reviewCommand', () => {
     await using harness = await setup()
 
     const controller = new AbortController()
-    const params = {
+    await harness.reviewCommand({
       ...reviewCommandParams({ args: 'check error handling', hasUI: true }),
-      runWithCancellableLoader: <T>({
-        run,
-      }: {
-        description: string
-        run: (runArgs: { signal: AbortSignal }) => Promise<T>
-      }) => run({ signal: controller.signal }),
-    }
-
-    await harness.reviewCommand(params)
+      showReviewForm: async () => ({
+        target: {
+          type: 'freeform' as const,
+          instructions: 'check error handling',
+        },
+        modelId: 'openai/gpt-4o',
+        includeAgentsMd: false,
+      }),
+      runWithCancellableLoader: ({ run }) => run({ signal: controller.signal }),
+    })
 
     expect(harness.runReviewSession).toHaveBeenCalledWith(
       expect.objectContaining({ signal: controller.signal })

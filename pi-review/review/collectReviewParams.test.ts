@@ -68,16 +68,53 @@ describe('collectReviewParams', () => {
     })
   })
 
-  it('returns freeform target when args are provided', async () => {
+  it('returns freeform target directly when args are provided without UI', async () => {
     await using harness = await setup()
 
     const result = await harness.collectReviewParams({
       ...collectReviewParamsInput(),
+      hasUI: false,
       args: 'check for regressions',
     })
 
     expect(result).toEqual({
       target: { type: 'freeform', instructions: 'check for regressions' },
+    })
+  })
+
+  it('treats whitespace-only args as empty without UI', async () => {
+    await using harness = await setup()
+
+    const result = await harness.collectReviewParams({
+      ...collectReviewParamsInput(),
+      hasUI: false,
+      args: '   ',
+    })
+
+    expect(result).toEqual({ target: { type: 'uncommitted' } })
+  })
+
+  it('opens the form with a custom review target from args when UI is available', async () => {
+    await using harness = await setup()
+
+    const showReviewForm = vi.fn(async () => ({
+      target: { type: 'freeform' as const, instructions: 'check regressions' },
+      modelId: 'openai/gpt-4o',
+      includeAgentsMd: false,
+    }))
+    const result = await harness.collectReviewParams({
+      ...collectReviewParamsInput(),
+      args: '  check regressions  ',
+      showReviewForm,
+    })
+
+    expect(showReviewForm).toHaveBeenCalledWith(
+      expect.objectContaining({ customReviewTarget: 'check regressions' })
+    )
+    expect(result).toEqual({
+      target: { type: 'freeform', instructions: 'check regressions' },
+      modelId: 'openai/gpt-4o',
+      includeAgentsMd: false,
     })
   })
 
@@ -114,7 +151,11 @@ describe('collectReviewParams', () => {
     }
     const showReviewForm = vi
       .fn()
-      .mockResolvedValueOnce('fetch')
+      .mockResolvedValueOnce({
+        action: 'fetch',
+        customReviewTarget: '',
+        selectedTarget: 'branch',
+      })
       .mockResolvedValueOnce(selection)
     const result = await harness.collectReviewParams({
       ...collectReviewParamsInput(),
@@ -123,6 +164,39 @@ describe('collectReviewParams', () => {
 
     expect(harness.fetchOrigin).toHaveBeenCalledTimes(1)
     expect(showReviewForm).toHaveBeenCalledTimes(2)
+    expect(result).toEqual(selection)
+  })
+
+  it('keeps the selected target and edited custom review target when fetching', async () => {
+    await using harness = await setup()
+
+    const selection = {
+      target: { type: 'baseBranch' as const, branch: 'origin/main' },
+      modelId: 'openai/gpt-4o',
+      includeAgentsMd: false,
+    }
+    const showReviewForm = vi
+      .fn()
+      .mockResolvedValueOnce({
+        action: 'fetch',
+        customReviewTarget: 'review auth',
+        selectedTarget: 'branch',
+      })
+      .mockResolvedValueOnce(selection)
+    const result = await harness.collectReviewParams({
+      ...collectReviewParamsInput(),
+      args: 'check regressions',
+      showReviewForm,
+    })
+
+    expect(harness.fetchOrigin).toHaveBeenCalledTimes(1)
+    expect(showReviewForm).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        customReviewTarget: 'review auth',
+        defaultTarget: 'branch',
+      })
+    )
     expect(result).toEqual(selection)
   })
 
@@ -148,7 +222,11 @@ describe('collectReviewParams', () => {
       ...collectReviewParamsInput(),
       showReviewForm: vi
         .fn()
-        .mockResolvedValueOnce('fetch')
+        .mockResolvedValueOnce({
+          action: 'fetch',
+          customReviewTarget: '',
+          selectedTarget: 'branch',
+        })
         .mockResolvedValueOnce(undefined),
     }
     await harness.collectReviewParams(params)
@@ -172,7 +250,11 @@ describe('collectReviewParams', () => {
       ...collectReviewParamsInput(),
       showReviewForm: vi
         .fn()
-        .mockResolvedValueOnce('fetch')
+        .mockResolvedValueOnce({
+          action: 'fetch',
+          customReviewTarget: '',
+          selectedTarget: 'branch',
+        })
         .mockResolvedValueOnce(undefined),
     }
     const result = await harness.collectReviewParams(params)

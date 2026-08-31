@@ -26,7 +26,7 @@ type ReviewCommandParams = {
   hasUI: boolean
   showReviewForm: (
     form: ReviewFormData
-  ) => Promise<ReviewFormResult | 'fetch' | undefined>
+  ) => Promise<ReviewFormResult | undefined>
   notify: (message: string, level: 'info' | 'warning' | 'error') => void
   createModelRuntime: (modelId: string) => Promise<{
     model: Model<Api> | undefined

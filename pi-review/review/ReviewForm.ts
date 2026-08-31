@@ -1,4 +1,5 @@
 import {
+  Input,
   Key,
   matchesKey,
   SelectList,
@@ -12,12 +13,18 @@ import type {
 } from './prepareReviewForm'
 import type { TargetSelection } from './collectReviewParams'
 
-export type ReviewFormResult = {
-  target: TargetSelection
-  modelId: string
-  includeAgentsMd: boolean
-  reviewInstructions?: ReviewInstructionFile
-}
+export type ReviewFormResult =
+  | {
+      target: TargetSelection
+      modelId: string
+      includeAgentsMd: boolean
+      reviewInstructions?: ReviewInstructionFile
+    }
+  | {
+      action: 'fetch'
+      customReviewTarget: string
+      selectedTarget: ReviewFormTarget
+    }
 
 export type ReviewFormTheme = {
   cursor: (text: string) => string
@@ -31,9 +38,15 @@ const targetLabels: Record<ReviewFormTarget, string> = {
   uncommitted: 'Uncommitted changes',
   branch: 'Branch changes',
   commit: 'Commit',
+  freeform: 'Other (directory/file/etc)',
 }
 
-const targets: ReviewFormTarget[] = ['uncommitted', 'branch', 'commit']
+const targets: ReviewFormTarget[] = [
+  'uncommitted',
+  'branch',
+  'commit',
+  'freeform',
+]
 
 type RowId =
   | 'target'
@@ -58,12 +71,15 @@ export class ReviewForm {
   private includeAgentsMd = false
   private instructionsIndex = 0
   private selector: SelectList | null = null
+  private customReviewTarget = ''
+  private editor: Input | null = null
+  private editorError = false
 
-  private done: (result: ReviewFormResult | 'fetch' | undefined) => void
+  private done: (result: ReviewFormResult | undefined) => void
 
   constructor(params: {
     form: ReviewFormData
-    done: (result: ReviewFormResult | 'fetch' | undefined) => void
+    done: (result: ReviewFormResult | undefined) => void
     theme: ReviewFormTheme
   }) {
     this.form = params.form
@@ -80,6 +96,10 @@ export class ReviewForm {
       0,
       this.form.models.indexOf(params.form.defaultModel)
     )
+    this.customReviewTarget = params.form.customReviewTarget?.trim() ?? ''
+    if (this.target === 'freeform') {
+      this.selectedRow = this.rows().length - 1
+    }
   }
 
   private branchLabel(branch: { name: string; author: string }): string {
@@ -109,7 +129,12 @@ export class ReviewForm {
   private rowText(row: RowId): { label: string; value: string; hint?: string } {
     switch (row) {
       case 'target':
-        return { label: 'Target', value: targetLabels[this.target] }
+        return this.target === 'freeform'
+          ? {
+              label: 'Target',
+              value: `${targetLabels.freeform} — ${this.customReviewTarget}`,
+            }
+          : { label: 'Target', value: targetLabels[this.target] }
       case 'base': {
         const branch = this.form.branches[this.baseIndex]
         return {
@@ -149,9 +174,25 @@ export class ReviewForm {
     }
   }
 
+  private cycleTarget(direction: 1 | -1): void {
+    const values: ReviewFormTarget[] =
+      this.customReviewTarget !== ''
+        ? (['uncommitted', 'branch', 'commit', 'freeform'] as const)
+        : (['uncommitted', 'branch', 'commit'] as const)
+    const current = values.indexOf(this.target)
+    if (current === -1) return
+    this.target =
+      values[(current + direction + values.length) % values.length] ??
+      this.target
+  }
+
   private cycle(direction: 1 | -1): void {
     const row = this.rows()[this.selectedRow]
     if (row === undefined || row === 'fetch' || row === 'start') return
+    if (row === 'target') {
+      this.cycleTarget(direction)
+      return
+    }
     const choices = this.selectorChoices(row)
     const length = choices.labels.length
     if (length === 0) return
@@ -194,6 +235,16 @@ export class ReviewForm {
           reviewInstructions,
         }
       }
+      case 'freeform':
+        return {
+          target: {
+            type: 'freeform',
+            instructions: this.customReviewTarget,
+          },
+          modelId,
+          includeAgentsMd,
+          reviewInstructions,
+        }
     }
   }
 
@@ -208,7 +259,12 @@ export class ReviewForm {
           labels: targets.map((target) => targetLabels[target]),
           index: targets.indexOf(this.target),
           pick: (index) => {
-            this.target = targets[index] ?? this.target
+            const selected = targets[index]
+            if (selected === 'freeform') {
+              this.openFreeformEditor()
+            } else {
+              this.target = selected ?? this.target
+            }
           },
         }
       case 'base':
@@ -281,6 +337,32 @@ export class ReviewForm {
     this.selector = selector
   }
 
+  private openFreeformEditor(): void {
+    const editor = new Input()
+    editor.focused = true
+    editor.setValue(this.customReviewTarget)
+    editor.handleInput('\x05')
+    editor.onSubmit = (value) => {
+      const trimmed = value.trim()
+      if (trimmed === '') {
+        this.editorError = true
+        return
+      }
+      this.editorError = false
+      this.customReviewTarget = trimmed
+      this.target = 'freeform'
+      this.editor = null
+      this.selectedRow = 0
+    }
+    editor.onEscape = () => {
+      this.editorError = false
+      this.editor = null
+      this.selectedRow = 0
+    }
+    this.editorError = false
+    this.editor = editor
+  }
+
   private submit(): void {
     const selection = this.selection()
     if (selection !== undefined) {
@@ -294,6 +376,10 @@ export class ReviewForm {
       this.selector.handleInput(data)
       return
     }
+    if (this.editor) {
+      this.editor.handleInput(data)
+      return
+    }
     const rowCount = this.rows().length
     if (matchesKey(data, Key.escape)) {
       this.done(undefined)
@@ -305,7 +391,13 @@ export class ReviewForm {
       if (row === 'start') {
         this.submit()
       } else if (row === 'fetch') {
-        this.done('fetch')
+        this.done({
+          action: 'fetch',
+          customReviewTarget: this.customReviewTarget,
+          selectedTarget: this.target,
+        })
+      } else if (row === 'target' && this.target === 'freeform') {
+        this.openFreeformEditor()
       } else {
         this.openSelector(row)
       }
@@ -323,6 +415,21 @@ export class ReviewForm {
   render(width: number): string[] {
     if (this.selector) {
       return this.selector.render(width)
+    }
+    if (this.editor) {
+      const lines = [
+        truncateToWidth(
+          `${this.theme.cursor('❯ ')}${this.theme.label(
+            'What to review'.padEnd(20),
+            true
+          )}${this.editor.render(width - 24).join('\n')}`,
+          width
+        ),
+      ]
+      if (this.editorError) {
+        lines.push(this.theme.hint('Instructions cannot be empty'))
+      }
+      return lines
     }
     return this.rows().map((row, index) => {
       const selected = index === this.selectedRow
