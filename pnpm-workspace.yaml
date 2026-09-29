@@ -12,3 +12,5 @@ allowBuilds:
   koffi: true
   protobufjs: true
   puppeteer: true
+patchedDependencies:
+  '@carderne/sandbox-runtime@0.0.72': patches/@carderne__sandbox-runtime@0.0.72.patch

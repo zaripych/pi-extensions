@@ -1,0 +1,118 @@
+diff --git a/dist/sandbox/macos-sandbox-utils.d.ts b/dist/sandbox/macos-sandbox-utils.d.ts
+index 1ceab5751724074603d7177101cb78256bedcd25..92c8b4c7cc1c93eb7f659ab8b23791c4aea32e53 100644
+--- a/dist/sandbox/macos-sandbox-utils.d.ts
++++ b/dist/sandbox/macos-sandbox-utils.d.ts
+@@ -31,6 +31,7 @@ export interface MacOSSandboxParams {
+     ignoreViolations?: IgnoreViolationsConfig | undefined;
+     allowPty?: boolean;
+     allowBrowserProcess?: boolean;
++    allowUnsandboxedPs?: boolean;
+     enableWeakerNetworkIsolation?: boolean;
+     allowAppleEvents?: boolean;
+     binShell?: string;
+diff --git a/dist/sandbox/macos-sandbox-utils.js b/dist/sandbox/macos-sandbox-utils.js
+index 15a93d4746838c21d6cedd0309e5f7fab3d77e3d..b418db654f6d8857ee72ee4518e06301c372012e 100644
+--- a/dist/sandbox/macos-sandbox-utils.js
++++ b/dist/sandbox/macos-sandbox-utils.js
+@@ -264,7 +264,7 @@ function generateWriteRules(config, logTag) {
+ /**
+  * Generate complete sandbox profile
+  */
+-function generateSandboxProfile({ readConfig, writeConfig, httpProxyPort, socksProxyPort, needsNetworkRestriction, allowUnixSockets, allowAllUnixSockets, allowLocalBinding, allowMachLookup, allowPty, allowBrowserProcess = false, enableWeakerNetworkIsolation = false, allowAppleEvents = false, logTag, }) {
++function generateSandboxProfile({ readConfig, writeConfig, httpProxyPort, socksProxyPort, needsNetworkRestriction, allowUnixSockets, allowAllUnixSockets, allowLocalBinding, allowMachLookup, allowPty, allowBrowserProcess = false, allowUnsandboxedPs = false, enableWeakerNetworkIsolation = false, allowAppleEvents = false, logTag, }) {
+     const profile = [
+         '(version 1)',
+         `(deny default (with message "${logTag}"))`,
+@@ -274,6 +274,9 @@ function generateSandboxProfile({ readConfig, writeConfig, httpProxyPort, socksP
+         '; Essential permissions - based on Chrome sandbox policy',
+         '; Process permissions',
+         '(allow process-exec)',
++        ...(allowUnsandboxedPs === true
++            ? ['(allow process-exec (literal "/bin/ps") (with no-sandbox))']
++            : []),
+         '(allow process-fork)',
+         '(allow process-info* (target same-sandbox))',
+         '(allow signal (target same-sandbox))',
+@@ -585,7 +588,7 @@ function escapePath(pathStr) {
+  * Wrap command with macOS sandbox
+  */
+ export function wrapCommandWithSandboxMacOS(params) {
+-    const { command, needsNetworkRestriction, httpProxyPort, socksProxyPort, proxyAuthToken, caCertPath, allowUnixSockets, allowAllUnixSockets, allowLocalBinding, allowMachLookup, readConfig: readConfigIn, writeConfig, unsetEnvVars, setEnvVars, maskedFileBinds, allowPty, allowBrowserProcess = false, enableWeakerNetworkIsolation = false, allowAppleEvents = false, binShell, } = params;
++    const { command, needsNetworkRestriction, httpProxyPort, socksProxyPort, proxyAuthToken, caCertPath, allowUnixSockets, allowAllUnixSockets, allowLocalBinding, allowMachLookup, readConfig: readConfigIn, writeConfig, unsetEnvVars, setEnvVars, maskedFileBinds, allowPty, allowBrowserProcess = false, allowUnsandboxedPs = false, enableWeakerNetworkIsolation = false, allowAppleEvents = false, binShell, } = params;
+     // SBPL cannot redirect a read to different bytes, so whole-file masking
+     // degrades to read-deny on macOS: the sandboxed process gets EPERM
+     // instead of the sentinel. The DYLD interposer (a later step) lifts
+@@ -630,6 +633,7 @@ export function wrapCommandWithSandboxMacOS(params) {
+         allowMachLookup,
+         allowPty,
+         allowBrowserProcess,
++        allowUnsandboxedPs,
+         enableWeakerNetworkIsolation,
+         allowAppleEvents,
+         logTag,
+diff --git a/dist/sandbox/sandbox-config.d.ts b/dist/sandbox/sandbox-config.d.ts
+index 5cd7deeec5b7bc4b60655497a85056e4e572a2cc..3d06cb13f273cc24f63cd76f6066c86d2cb5da33 100644
+--- a/dist/sandbox/sandbox-config.d.ts
++++ b/dist/sandbox/sandbox-config.d.ts
+@@ -1039,6 +1039,7 @@ export declare const SandboxRuntimeConfigSchema: z.ZodEffects<z.ZodObject<{
+     mandatoryDenySearchDepth: z.ZodOptional<z.ZodNumber>;
+     allowPty: z.ZodOptional<z.ZodBoolean>;
+     allowBrowserProcess: z.ZodOptional<z.ZodBoolean>;
++    allowUnsandboxedPs: z.ZodOptional<z.ZodBoolean>;
+     seccomp: z.ZodOptional<z.ZodObject<{
+         applyPath: z.ZodOptional<z.ZodString>;
+         argv0: z.ZodOptional<z.ZodString>;
+@@ -1081,6 +1082,7 @@ export declare const SandboxRuntimeConfigSchema: z.ZodEffects<z.ZodObject<{
+         } | undefined;
+     }>>;
+ }, "strip", z.ZodTypeAny, {
++    allowUnsandboxedPs?: boolean | undefined;
+     network: {
+         allowedDomains: string[];
+         deniedDomains: string[];
+@@ -1250,7 +1252,9 @@ export declare const SandboxRuntimeConfigSchema: z.ZodEffects<z.ZodObject<{
+             path?: string | undefined;
+         } | undefined;
+     } | undefined;
++    allowUnsandboxedPs?: boolean | undefined;
+ }>, {
++    allowUnsandboxedPs?: boolean | undefined;
+     network: {
+         allowedDomains: string[];
+         deniedDomains: string[];
+@@ -1420,6 +1424,7 @@ export declare const SandboxRuntimeConfigSchema: z.ZodEffects<z.ZodObject<{
+             path?: string | undefined;
+         } | undefined;
+     } | undefined;
++    allowUnsandboxedPs?: boolean | undefined;
+ }>;
+ export type MitmProxyConfig = z.infer<typeof MitmProxyConfigSchema>;
+ export type ParentProxyConfig = z.infer<typeof ParentProxyConfigSchema>;
+diff --git a/dist/sandbox/sandbox-config.js b/dist/sandbox/sandbox-config.js
+index a40541333b2674a2ee5fcce1c97cc01747ebc167..a36911487b6a22de435a88bc14d9d13a56b5ca35 100644
+--- a/dist/sandbox/sandbox-config.js
++++ b/dist/sandbox/sandbox-config.js
+@@ -766,6 +766,11 @@ export const SandboxRuntimeConfigSchema = z
+         .boolean()
+         .optional()
+         .describe('Allow pseudo-terminal (pty) operations (macOS only)'),
++    allowUnsandboxedPs: z
++        .boolean()
++        .optional()
++        .describe('Run only /bin/ps outside the macOS sandbox. Default: false. ' +
++        'The shell and other commands remain sandboxed; ps can inspect host processes.'),
+     allowBrowserProcess: z
+         .boolean()
+         .optional()
+diff --git a/dist/sandbox/sandbox-manager.js b/dist/sandbox/sandbox-manager.js
+index e4fdc8d2355434e2b7a1f00afd875e5bd9af38d3..5f33fe2bdc9488626e31ead0a6d7f02938adfdd2 100644
+--- a/dist/sandbox/sandbox-manager.js
++++ b/dist/sandbox/sandbox-manager.js
+@@ -1063,6 +1063,7 @@ function createManager(legacySingleton) {
+                     ignoreViolations: getIgnoreViolations(),
+                     allowPty,
+                     allowBrowserProcess,
++                    allowUnsandboxedPs: customConfig?.allowUnsandboxedPs ?? config?.allowUnsandboxedPs,
+                     enableWeakerNetworkIsolation: getEnableWeakerNetworkIsolation(),
+                     allowAppleEvents: getAllowAppleEvents(),
+                     binShell,

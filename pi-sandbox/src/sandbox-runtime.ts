@@ -86,6 +86,7 @@ export function buildRuntimeConfig(
     ignoreViolations: config.ignoreViolations,
     enableWeakerNestedSandbox: config.enableWeakerNestedSandbox,
     allowBrowserProcess: config.allowBrowserProcess,
+    allowUnsandboxedPs: config.allowUnsandboxedPs,
     allowPty: config.allowPty,
     enableWeakerNetworkIsolation: true,
   };

@@ -51,6 +51,7 @@
     }
   },
   "devDependencies": {
+    "@total-typescript/shoehorn": "0.1.2",
     "@types/node": "26.0.0",
     "oxfmt": "0.56.0",
     "oxlint": "1.71.0",

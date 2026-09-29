@@ -41,8 +41,10 @@ import {
   warnIfAllDomainsAllowed,
 } from "./ui.ts";
 
-export default function (pi: ExtensionAPI) {
-  const sandboxManager = createSandboxManager();
+const defaultDeps = { createSandboxManager };
+
+export default function extension(pi: ExtensionAPI, deps = defaultDeps) {
+  const sandboxManager = deps.createSandboxManager();
   pi.registerFlag("no-sandbox", {
     description: "Disable OS-level sandboxing for bash commands",
     type: "boolean",
@@ -446,3 +448,5 @@ export default function (pi: ExtensionAPI) {
     },
   });
 }
+
+extension.defaultDeps = defaultDeps;

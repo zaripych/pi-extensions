@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { type SandboxRuntimeConfig } from "@carderne/sandbox-runtime";
+import { SandboxRuntimeConfigSchema, type SandboxRuntimeConfig } from "@carderne/sandbox-runtime";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export type SandboxConfig = Omit<SandboxRuntimeConfig, "network"> & {
@@ -27,6 +27,7 @@ export const DEFAULT_PERMISSION_PROMPT_TIMEOUT_SECONDS = 10 * 60;
 
 export const DEFAULT_CONFIG: SandboxConfig = {
   enabled: true,
+  allowUnsandboxedPs: false,
   sandboxUserShell: true,
   permissionPromptTimeoutSeconds: DEFAULT_PERMISSION_PROMPT_TIMEOUT_SECONDS,
   network: {
@@ -55,9 +56,19 @@ export const DEFAULT_CONFIG: SandboxConfig = {
 };
 
 function mergeObjects(base: SandboxConfig, overrides: SandboxConfigFile): SandboxConfig {
+  const allowUnsandboxedPs =
+    SandboxRuntimeConfigSchema.innerType().shape.allowUnsandboxedPs.safeParse(
+      overrides.allowUnsandboxedPs === undefined
+        ? base.allowUnsandboxedPs
+        : overrides.allowUnsandboxedPs,
+    );
+  if (!allowUnsandboxedPs.success) {
+    console.warn("Warning: allowUnsandboxedPs must be a boolean; using false.");
+  }
   return {
     ...base,
     ...overrides,
+    allowUnsandboxedPs: allowUnsandboxedPs.success ? allowUnsandboxedPs.data : false,
     network: overrides.network
       ? ({ ...base.network, ...overrides.network } as NetworkConfig)
       : base.network,

@@ -8,6 +8,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import extension from "../src/extension.ts";
+import { canRunSandboxExec } from "./canRunSandboxExec.ts";
 
 type Handler = (event: any, ctx: ExtensionContext) => any;
 
@@ -82,6 +83,12 @@ test(
     timeout: 15_000,
   },
   async (t) => {
+    if (!(await canRunSandboxExec())) {
+      t.skip(
+        "The enclosing sandbox blocks nested sandbox-exec. Run from an ordinary macOS terminal.",
+      );
+      return;
+    }
     const root = mkdtempSync(join(tmpdir(), "pi-sandbox-prefix-"));
     const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
     process.env.PI_CODING_AGENT_DIR = join(root, "agent");
@@ -119,6 +126,12 @@ test(
     timeout: 15_000,
   },
   async (t) => {
+    if (!(await canRunSandboxExec())) {
+      t.skip(
+        "The enclosing sandbox blocks nested sandbox-exec. Run from an ordinary macOS terminal.",
+      );
+      return;
+    }
     const root = mkdtempSync(join(tmpdir(), "pi-sandbox-sessions-"));
     const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
     process.env.PI_CODING_AGENT_DIR = join(root, "agent");

@@ -99,6 +99,61 @@ Note below that the order of precedence for filesystem read and write are opposi
 }
 ```
 
+#### Allow `/bin/ps` on macOS
+
+`allowUnsandboxedPs` defaults to `false`. To opt in, add this to
+`~/.pi/agent/sandbox.json` or `.pi/sandbox.json`:
+
+```json
+{
+  "enabled": true,
+  "allowUnsandboxedPs": true
+}
+```
+
+Reload pi with `/reload` after changing the configuration. A project value of
+`false` overrides a global value of `true`. An invalid value produces a warning
+and is treated as `false`; the rest of the sandbox configuration remains active.
+The option has no effect on Linux.
+
+**Security:** This runs `/bin/ps` outside the sandbox. The shell and other
+commands retain their existing filesystem and network restrictions. The
+exception matches only the literal `/bin/ps` path, not a directory or command
+name. It lets `ps` inspect host processes, including command arguments that
+may contain secrets. It does not grant process-inspection permissions to other
+sandboxed executables.
+
+macOS blocks the setuid `/bin/ps` executable even when ordinary execution and
+process inspection are permitted. `allowBrowserProcess` and filesystem path
+allowances do not remove this restriction.
+
+This option requires this repository's pnpm patch for
+`@carderne/sandbox-runtime@0.0.72`. Run `pnpm install` from the repository root
+to apply `patches/@carderne__sandbox-runtime@0.0.72.patch`. A standalone npm
+installation does not apply this workspace patch. Keep the patch and regression
+checks when updating the runtime dependency.
+
+Run the sandbox suite separately from the root Vitest suite:
+
+```sh
+pnpm --dir pi-sandbox test
+```
+
+Run the focused checks from the repository root:
+
+```sh
+pnpm --dir pi-sandbox exec tsx --test test/allowUnsandboxedPs.test.ts
+```
+
+To also test actual macOS execution, run from an ordinary terminal:
+
+```sh
+PI_SANDBOX_PS_E2E=1 pnpm --dir pi-sandbox exec tsx --test test/allowUnsandboxedPs.test.ts
+```
+
+The execution check is skipped if an enclosing sandbox refuses nested
+`sandbox-exec`. Policy-generation checks still run in that case.
+
 #### Usage
 
 ```
