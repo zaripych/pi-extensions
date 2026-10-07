@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from 'node:timers/promises'
 import type {
   BashToolCallEvent,
   BeforeAgentStartEvent,
@@ -152,6 +153,7 @@ export const setupPiHarness = configureHarnesses(
     const stubTui = fromPartial<CustomTui>({ requestRender: () => undefined })
     const stubTheme = fromPartial<CustomTheme>({
       fg: (_color: ThemeColor, text: string) => text,
+      bg: (_color: string, text: string) => text,
       bold: (text: string) => text,
     })
     const stubKeybindings = fromPartial<CustomKeybindings>({})
@@ -321,6 +323,71 @@ export const setupPiHarness = configureHarnesses(
       activeCustom.finish(result)
     }
 
+    const SNAPSHOT_ACTION = '[snapshot]'
+    const INTERACTIVE_WIDTH = 100
+    const INTERACTIVE_TIMEOUT_MS = 100
+    const TIMED_OUT = Symbol('runInteractiveCommand timed out')
+
+    /** Runs a command that opens a ui.custom component and drives it through
+     * the given actions: each action is a key sent to the component, except
+     * '[snapshot]' which captures the current render (width 100 by default,
+     * joined with newlines). Resolves with one string per snapshot, in
+     * action order. A single deadline covers the whole run and rejects if
+     * the command does not open a component or does not finish within
+     * timeoutMs (default 100) — the actions must close the component. */
+    async function runInteractiveCommand(params: {
+      command: string
+      args?: string
+      actions: string[]
+      width?: number
+      timeoutMs?: number
+    }): Promise<string[]> {
+      const width = params.width ?? INTERACTIVE_WIDTH
+      const timeoutMs = params.timeoutMs ?? INTERACTIVE_TIMEOUT_MS
+      const deadline = Date.now() + timeoutMs
+      const snapshots: string[] = []
+      const running = runCommand(params.command, params.args ?? '')
+
+      const raceDeadline = async (
+        label: string,
+        operation: () => Promise<unknown>
+      ): Promise<void> => {
+        const winner = await Promise.race([
+          operation(),
+          sleep(Math.max(0, deadline - Date.now()), TIMED_OUT),
+        ])
+        if (winner === TIMED_OUT) {
+          throw new Error(
+            `runInteractiveCommand timed out after ${timeoutMs}ms waiting ${label}`
+          )
+        }
+      }
+
+      await raceDeadline(
+        'for the command to open a ui.custom component',
+        async () => {
+          while (activeCustom === undefined && Date.now() < deadline) {
+            await sleep(1)
+          }
+        }
+      )
+
+      for (const action of params.actions) {
+        if (action === SNAPSHOT_ACTION) {
+          snapshots.push(renderCustom(width).join('\n'))
+          continue
+        }
+        pressCustom(action)
+        await sleep(0)
+      }
+
+      await raceDeadline(
+        'for the command to finish — do the actions close the component?',
+        () => running
+      )
+      return snapshots
+    }
+
     return {
       pi,
       toolCall,
@@ -338,6 +405,7 @@ export const setupPiHarness = configureHarnesses(
       renderCustom,
       pressCustom,
       finishCustom,
+      runInteractiveCommand,
     }
   }
 )

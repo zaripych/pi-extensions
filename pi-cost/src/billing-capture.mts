@@ -9,9 +9,9 @@
  * all routes succeed.
  *
  * Usage, from the repo root:
- *   pnpm exec tsx pi-cost-counter/scripts/billing-capture.mts
- *   ./pi-cost-counter/scripts/billing-capture.mts --force-refresh
- *   ./pi-cost-counter/scripts/billing-capture.mts --port 9223
+ *   pnpm exec tsx pi-cost/src/billing-capture.mts
+ *   ./pi-cost/src/billing-capture.mts --force-refresh
+ *   ./pi-cost/src/billing-capture.mts --port 9223
  *
  * --keep-open leaves the browser running after the run for inspection.
  */

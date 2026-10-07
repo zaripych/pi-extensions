@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { collectSessionCostRecords } from '../../collectSessionCostRecords'
+import type { collectSessionCostRecords } from '../collectSessionCostRecords'
 import { calculateUsage } from './calculateUsage'
 import type { NormalizedProviderBilling } from './normalizedProviderBilling'
 

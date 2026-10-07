@@ -12,40 +12,19 @@
  *   snapshot proxy) plus consumed credits.
  *
  * Usage, from the repo root:
- *   pnpm exec tsx pi-cost-counter/scripts/model-value.mts
- *   pnpm exec tsx pi-cost-counter/scripts/model-value.mts --mode consumption
- *   pnpm exec tsx pi-cost-counter/scripts/model-value.mts --mode amortized --json
+ *   pnpm exec tsx pi-cost/src/model-value.mts
+ *   pnpm exec tsx pi-cost/src/model-value.mts --mode consumption
+ *   pnpm exec tsx pi-cost/src/model-value.mts --mode amortized --json
  *
  * Billing capture is refreshed when stale (24 h) through ensureCapture; AA
  * data is cached for 24 h in ~/.cache/pi-billing. All required fetches
  * fail fast: no partial reports.
  */
 import { parseArgs } from 'node:util'
-import { ensureCapture } from './billing-capture/ensureCapture'
-import { collectSessionCostRecords } from '../collectSessionCostRecords'
-import { resolveAaScores } from './model-value/artificial-analysis/resolveAaScores'
-import { normalizeAnthropicBilling } from './model-value/anthropic/normalizeAnthropicBilling'
-import { calculateUsage, type UsageReport } from './model-value/calculateUsage'
-import {
-  fromLocalDayString,
-  toLocalDayString,
-} from './model-value/localDayString'
-import { normalizeNeuralwattBilling } from './model-value/neuralwatt/normalizeNeuralwattBilling'
-import { normalizeOpenaiBilling } from './model-value/openai/normalizeOpenaiBilling'
-import { StaleBillingCaptureError } from './model-value/staleBillingCapture'
-
-function formatTokens(tokens: number): string {
-  if (tokens >= 1e9) return `${(tokens / 1e9).toFixed(1)} BTok`
-  if (tokens >= 1e6) return `${(tokens / 1e6).toFixed(2)} MTok`
-  if (tokens >= 1e3) return `${(tokens / 1e3).toFixed(1)} KTok`
-  return String(tokens)
-}
-
-function formatValue(value: UsageReport['models'][number]['value']): string {
-  if (value === '∞') return '∞ (zero-cost)'
-  if (value === null) return '—'
-  return value.toFixed(1)
-}
+import type { UsageReport } from './model-value/calculateUsage'
+import { calculateUsage } from './model-value/calculateUsage'
+import { formatTokens, formatValue } from './model-value/formatUsage'
+import { loadUsageInputs } from './model-value/loadUsageInputs'
 
 function printTable(params: {
   columns: string[]
@@ -166,85 +145,9 @@ async function main(): Promise<void> {
     )
   }
 
-  const captureResult = await ensureCapture({ now })
-  if (!captureResult.ok) {
-    console.error('billing capture failed', {
-      error: captureResult.failure.error,
-    })
-    console.error(`response artifacts: ${captureResult.failure.artifactsPath}`)
-    process.exitCode = 1
-    return
-  }
+  const inputs = await loadUsageInputs({ now })
 
-  const loadProviders = async (params: {
-    openai: (typeof captureResult.data)['openai']
-    anthropic: (typeof captureResult.data)['anthropic']
-    neuralwatt: (typeof captureResult.data)['neuralwatt']
-    now: Date
-  }) => [
-    await normalizeOpenaiBilling({ capture: params.openai, now: params.now }),
-    await normalizeAnthropicBilling({ capture: params.anthropic }),
-    await normalizeNeuralwattBilling({
-      capture: params.neuralwatt,
-      now: params.now,
-    }),
-  ]
-
-  let providers
-  try {
-    providers = await loadProviders({ ...captureResult.data, now })
-  } catch (error) {
-    if (!(error instanceof StaleBillingCaptureError)) throw error
-    const refreshed = await ensureCapture({ now, forceRefresh: true })
-    if (!refreshed.ok) {
-      console.error('billing capture refresh failed', {
-        error: refreshed.failure.error,
-      })
-      console.error(`response artifacts: ${refreshed.failure.artifactsPath}`)
-      process.exitCode = 1
-      return
-    }
-    providers = await loadProviders({ ...refreshed.data, now })
-  }
-
-  // a capture can be fresh by mtime yet describe a cycle that has ended
-  const today = toLocalDayString(now)
-  if (providers.some((provider) => provider.cycleEnd <= today)) {
-    const refreshed = await ensureCapture({ now, forceRefresh: true })
-    if (!refreshed.ok) {
-      console.error('billing capture refresh failed', {
-        error: refreshed.failure.error,
-      })
-      console.error(`response artifacts: ${refreshed.failure.artifactsPath}`)
-      process.exitCode = 1
-      return
-    }
-    providers = await loadProviders({ ...refreshed.data, now })
-  }
-
-  const cycleStarts = providers.map((provider) =>
-    fromLocalDayString(provider.cycleStart)
-  )
-  const cycleEnds = providers.map((provider) =>
-    fromLocalDayString(provider.cycleEnd)
-  )
-  const { records } = await collectSessionCostRecords({
-    start: new Date(Math.min(...cycleStarts.map((date) => date.getTime()))),
-    end: new Date(Math.max(...cycleEnds.map((date) => date.getTime()))),
-  })
-
-  const aaScores = await resolveAaScores({
-    now,
-    models: [...new Set(records.map((record) => record.model))],
-  })
-
-  const report = calculateUsage({
-    mode,
-    providers,
-    records,
-    aaScores,
-    now,
-  })
+  const report = calculateUsage({ mode, ...inputs, now })
 
   if (values.json) {
     console.log(JSON.stringify(toJsonDocument(report)))

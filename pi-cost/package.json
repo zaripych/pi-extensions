@@ -1,7 +1,7 @@
 {
-  "name": "@ctogg/pi-cost-counter",
+  "name": "pi-cost",
   "version": "0.1.1",
-  "description": "Pi extension that tracks LLM API costs across all sessions with daily JSONL logging and a /cost command",
+  "description": "Pi extension and CLI reporting subscription cost, model usage, and value across providers",
   "type": "module",
   "keywords": [
     "pi",
@@ -21,7 +21,7 @@
   ],
   "pi": {
     "extensions": [
-      "./index.ts"
+      "./src/index.ts"
     ]
   },
   "scripts": {
@@ -34,6 +34,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@total-typescript/shoehorn": "0.1.2",
     "@types/ws": "^8.18.2",
     "foundation": "workspace:*",
     "puppeteer": "25.2.0",

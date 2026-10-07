@@ -112,30 +112,36 @@ describe('collectSessionCostRecords', () => {
     expect(result).toEqual({
       stats: { invalidJsonLines: 0, schemaMismatchLines: 0 },
       records: [
-      {
-        ts: 1000,
-        sessionId: 'unknown',
-        cwd: 'unknown',
-        provider: 'anthropic',
-        model: 'model-a',
-        tokens: { input: 10, output: 20, cacheRead: 30, cacheWrite: 40 },
-        cost: {
-          input: 0.1,
-          output: 0.2,
-          cacheRead: 0.01,
-          cacheWrite: 0.02,
-          total: 0.33,
+        {
+          ts: 1000,
+          sessionId: 'unknown',
+          cwd: 'unknown',
+          provider: 'anthropic',
+          model: 'model-a',
+          tokens: { input: 10, output: 20, cacheRead: 30, cacheWrite: 40 },
+          cost: {
+            input: 0.1,
+            output: 0.2,
+            cacheRead: 0.01,
+            cacheWrite: 0.02,
+            total: 0.33,
+          },
         },
-      },
-      {
-        ts: 2000,
-        sessionId: 'unknown',
-        cwd: 'unknown',
-        provider: 'openai',
-        model: 'model-b',
-        tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        cost: { input: 0.5, output: 0.6, cacheRead: 0, cacheWrite: 0, total: 1.1 },
-      },
+        {
+          ts: 2000,
+          sessionId: 'unknown',
+          cwd: 'unknown',
+          provider: 'openai',
+          model: 'model-b',
+          tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          cost: {
+            input: 0.5,
+            output: 0.6,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 1.1,
+          },
+        },
       ],
     })
   })
@@ -177,15 +183,15 @@ describe('collectSessionCostRecords', () => {
     expect(result).toEqual({
       stats: { invalidJsonLines: 0, schemaMismatchLines: 0 },
       records: [
-      {
-        ts: 1500,
-        sessionId: 'unknown',
-        cwd: 'unknown',
-        provider: 'anthropic',
-        model: 'model-a',
-        tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        cost: costOf(0.2),
-      },
+        {
+          ts: 1500,
+          sessionId: 'unknown',
+          cwd: 'unknown',
+          provider: 'anthropic',
+          model: 'model-a',
+          tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          cost: costOf(0.2),
+        },
       ],
     })
   })
@@ -225,15 +231,15 @@ describe('collectSessionCostRecords', () => {
     expect(result).toEqual({
       stats: { invalidJsonLines: 1, schemaMismatchLines: 1 },
       records: [
-      {
-        ts: 1300,
-        sessionId: 'unknown',
-        cwd: 'unknown',
-        provider: 'anthropic',
-        model: 'model-a',
-        tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        cost: costOf(0.7),
-      },
+        {
+          ts: 1300,
+          sessionId: 'unknown',
+          cwd: 'unknown',
+          provider: 'anthropic',
+          model: 'model-a',
+          tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          cost: costOf(0.7),
+        },
       ],
     })
   })

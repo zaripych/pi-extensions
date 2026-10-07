@@ -2,6 +2,62 @@ import { describe, expect, it } from 'vitest'
 import { setupPiHarness } from './pi.harness'
 
 describe('setupPiHarness', () => {
+  it('runs an interactive command with snapshots and keys', async () => {
+    const harness = await setupPiHarness()
+
+    harness.pi.registerCommand('demo', {
+      description: 'demo command',
+      handler: async (_args, ctx) => {
+        await ctx.ui.custom<null>((_tui, _theme, _keybindings, done) => {
+          let mode = 'amortized'
+          return {
+            render: () => [`mode: ${mode}`],
+            invalidate: () => {},
+            handleInput: (data: string) => {
+              if (data === 'm') {
+                mode = mode === 'amortized' ? 'consumption' : 'amortized'
+              }
+              if (data === 'q') done(null)
+            },
+            dispose: () => {},
+          }
+        })
+      },
+    })
+
+    const snapshots = await harness.runInteractiveCommand({
+      command: 'demo',
+      actions: ['[snapshot]', 'm', '[snapshot]', 'q'],
+    })
+
+    expect(snapshots).toHaveLength(2)
+    expect(snapshots[0]).toContain('mode: amortized')
+    expect(snapshots[1]).toContain('mode: consumption')
+  })
+
+  it('times out when the actions do not close the component', async () => {
+    const harness = await setupPiHarness()
+
+    harness.pi.registerCommand('demo', {
+      description: 'demo command',
+      handler: async (_args, ctx) => {
+        await ctx.ui.custom<null>(() => ({
+          render: () => ['stays open'],
+          invalidate: () => {},
+          dispose: () => {},
+        }))
+      },
+    })
+
+    await expect(
+      harness.runInteractiveCommand({
+        command: 'demo',
+        actions: [],
+        timeoutMs: 20,
+      })
+    ).rejects.toThrow('runInteractiveCommand timed out after 20ms')
+  })
+
   it('captures, drives, and finishes a ui.custom component', async () => {
     const harness = await setupPiHarness()
     let closedWith: number | undefined
