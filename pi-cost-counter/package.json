@@ -13,14 +13,6 @@
   ],
   "license": "MIT",
   "author": "",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/cristeahub/pi-cost-counter.git"
-  },
-  "homepage": "https://github.com/cristeahub/pi-cost-counter#readme",
-  "bugs": {
-    "url": "https://github.com/cristeahub/pi-cost-counter/issues"
-  },
   "files": [
     "index.ts",
     "collectSessionCostRecords.ts",
@@ -38,12 +30,15 @@
     "check": "echo 'nothing to check'"
   },
   "dependencies": {
+    "node-html-parser": "^9.0.4",
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@types/node": "26.0.0",
+    "@types/ws": "^8.18.2",
     "foundation": "workspace:*",
-    "vitest": "4.1.9"
+    "puppeteer": "25.2.0",
+    "shared": "workspace:*",
+    "ws": "8.21.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"

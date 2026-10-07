@@ -25,7 +25,6 @@
     "oxlint-tsgolint": "^0.24.0",
     "prettier": "3.8.4",
     "sort-package-json": "4.0.0",
-    "typescript": "6.0.3",
-    "vitest": "4.1.9"
+    "typescript": "6.0.3"
   }
 }
