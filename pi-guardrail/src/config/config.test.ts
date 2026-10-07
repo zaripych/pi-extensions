@@ -6,7 +6,7 @@ import {
   fakeReadToolCallEvent,
   fakeSessionStartEvent,
   setupPiHarness,
-} from '../testing/pi.harness'
+} from 'shared/testing/pi.harness'
 
 const setup = combineHarnesses(setupPiHarness, setupRegisterGuardrail)
 

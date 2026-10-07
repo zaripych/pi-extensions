@@ -2,14 +2,16 @@ import { dirname, join } from 'node:path'
 import { combineHarnesses } from 'foundation/testing/harness/combineHarnesses'
 import { describe, expect, it } from 'vitest'
 import { setupRegisterGuardrail } from '../register.harness'
-import { fakeBashToolCallEvent, setupPiHarness } from '../testing/pi.harness'
+import {
+  fakeBashToolCallEvent,
+  setupPiHarness,
+} from 'shared/testing/pi.harness'
 
 const setup = combineHarnesses(setupPiHarness, setupRegisterGuardrail)
 
-function fakeHelp(map: Record<string, string>): (params: {
-  cli: string
-  path: readonly string[]
-}) => Promise<string> {
+function fakeHelp(
+  map: Record<string, string>
+): (params: { cli: string; path: readonly string[] }) => Promise<string> {
   return async ({ path }) => map[path.join(' ')] ?? ''
 }
 
@@ -259,7 +261,9 @@ bash:
     )
     await writeFile(join(dirname(configPath), 'policy.false.yaml'), emitted)
     await runCommand('guardrail', 'reload')
-    const read = await toolCall(fakeBashToolCallEvent({ command: 'false list' }))
+    const read = await toolCall(
+      fakeBashToolCallEvent({ command: 'false list' })
+    )
 
     expect(read).toBeUndefined()
   })
@@ -273,8 +277,14 @@ bash:
         list: 'usage: gh list',
       }),
     })
-    const { pi, registerGuardrail, runCommand, readFile, fileExists, configPath } =
-      harness
+    const {
+      pi,
+      registerGuardrail,
+      runCommand,
+      readFile,
+      fileExists,
+      configPath,
+    } = harness
 
     await registerGuardrail({ pi })
     await runCommand('guardrail', 'discover gh')
@@ -293,7 +303,8 @@ bash:
         list: 'usage: tool list',
       }),
     })
-    const { pi, registerGuardrail, runCommand, fileExists, configPath } = harness
+    const { pi, registerGuardrail, runCommand, fileExists, configPath } =
+      harness
 
     await registerGuardrail({ pi })
     await runCommand('guardrail', 'discover !!!')
@@ -351,8 +362,14 @@ bash:
         list: 'usage: gh list',
       }),
     })
-    const { pi, registerGuardrail, runCommand, writeFile, readFile, configPath } =
-      harness
+    const {
+      pi,
+      registerGuardrail,
+      runCommand,
+      writeFile,
+      readFile,
+      configPath,
+    } = harness
     const target = join(dirname(configPath), 'guardrail.bash.gh.yaml')
     await writeFile(target, 'OLD CONTENT\n')
 
@@ -371,7 +388,8 @@ bash:
         list: 'usage: gh list',
       }),
     })
-    const { pi, registerGuardrail, runCommand, fileExists, configPath } = harness
+    const { pi, registerGuardrail, runCommand, fileExists, configPath } =
+      harness
 
     await registerGuardrail({ pi })
     await runCommand('guardrail', 'discover gh')

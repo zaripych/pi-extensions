@@ -8,7 +8,7 @@ import {
   fakeReadToolCallEvent,
   fakeSessionStartEvent,
   setupPiHarness,
-} from '../testing/pi.harness'
+} from 'shared/testing/pi.harness'
 
 const setup = combineHarnesses(setupPiHarness, setupRegisterGuardrail)
 
@@ -52,7 +52,9 @@ dangerous: []
 
     await registerGuardrail({ pi })
     const read = await toolCall(fakeBashToolCallEvent({ command: 'aws s3 ls' }))
-    const write = await toolCall(fakeBashToolCallEvent({ command: 'aws s3 cp' }))
+    const write = await toolCall(
+      fakeBashToolCallEvent({ command: 'aws s3 cp' })
+    )
 
     expect(read).toBeUndefined()
     expect(write).toEqual({
@@ -155,7 +157,9 @@ dangerous: []
 
     await registerGuardrail({ pi })
     await sessionStart(fakeSessionStartEvent())
-    const valid = await toolCall(fakeBashToolCallEvent({ command: 'aws s3 ls' }))
+    const valid = await toolCall(
+      fakeBashToolCallEvent({ command: 'aws s3 ls' })
+    )
     const dropped = await toolCall(
       fakeBashToolCallEvent({ command: 'kubectl get' })
     )
@@ -220,7 +224,9 @@ dangerous: []
 
     await registerGuardrail({ pi })
     await sessionStart(fakeSessionStartEvent())
-    const fromA = await toolCall(fakeBashToolCallEvent({ command: 'aws s3 ls' }))
+    const fromA = await toolCall(
+      fakeBashToolCallEvent({ command: 'aws s3 ls' })
+    )
     const fromB = await toolCall(
       fakeBashToolCallEvent({ command: 'aws ec2 describe-instances' })
     )
@@ -245,8 +251,14 @@ dangerous: []
 
   it('reports a duplicate import command with its file paths when /guardrail doctor runs', async () => {
     await using harness = await setup({ getFlag: () => 'read-only' })
-    const { pi, registerGuardrail, runCommand, notifications, writeFile, configPath } =
-      harness
+    const {
+      pi,
+      registerGuardrail,
+      runCommand,
+      notifications,
+      writeFile,
+      configPath,
+    } = harness
     await writeFile(
       configPath,
       `${readOnlyModes}
@@ -294,8 +306,14 @@ dangerous: []
 
   it('treats whitespace-variant import commands as duplicates when /guardrail doctor runs', async () => {
     await using harness = await setup({ getFlag: () => 'read-only' })
-    const { pi, registerGuardrail, runCommand, notifications, writeFile, configPath } =
-      harness
+    const {
+      pi,
+      registerGuardrail,
+      runCommand,
+      notifications,
+      writeFile,
+      configPath,
+    } = harness
     await writeFile(
       configPath,
       `${readOnlyModes}
@@ -343,8 +361,14 @@ dangerous: []
 
   it('reports a duplicate when the same import file is listed twice and /guardrail doctor runs', async () => {
     await using harness = await setup({ getFlag: () => 'read-only' })
-    const { pi, registerGuardrail, runCommand, notifications, writeFile, configPath } =
-      harness
+    const {
+      pi,
+      registerGuardrail,
+      runCommand,
+      notifications,
+      writeFile,
+      configPath,
+    } = harness
     await writeFile(
       configPath,
       `${readOnlyModes}
@@ -374,15 +398,23 @@ dangerous: []
     expect(notifications).toEqual([
       {
         level: 'warning',
-        message: expect.stringMatching(/duplicate[\s\S]*aws[\s\S]*policy\.aws\.yaml/i),
+        message: expect.stringMatching(
+          /duplicate[\s\S]*aws[\s\S]*policy\.aws\.yaml/i
+        ),
       },
     ])
   })
 
   it('reports an import prefix violation with the offending command when /guardrail doctor runs', async () => {
     await using harness = await setup({ getFlag: () => 'read-only' })
-    const { pi, registerGuardrail, runCommand, notifications, writeFile, configPath } =
-      harness
+    const {
+      pi,
+      registerGuardrail,
+      runCommand,
+      notifications,
+      writeFile,
+      configPath,
+    } = harness
     await writeFile(
       configPath,
       `${readOnlyModes}
@@ -422,13 +454,8 @@ dangerous: []
 
   it('does not advertise ignored duplicate imports in the system prompt', async () => {
     await using harness = await setup({ getFlag: () => 'hand-hold' })
-    const {
-      pi,
-      registerGuardrail,
-      beforeAgentStart,
-      writeFile,
-      configPath,
-    } = harness
+    const { pi, registerGuardrail, beforeAgentStart, writeFile, configPath } =
+      harness
     await writeFile(
       configPath,
       `${readOnlyModes}
@@ -469,13 +496,8 @@ dangerous: []
 
   it('does not advertise an import whose entries were all dropped in the system prompt', async () => {
     await using harness = await setup({ getFlag: () => 'hand-hold' })
-    const {
-      pi,
-      registerGuardrail,
-      beforeAgentStart,
-      writeFile,
-      configPath,
-    } = harness
+    const { pi, registerGuardrail, beforeAgentStart, writeFile, configPath } =
+      harness
     await writeFile(
       configPath,
       `${readOnlyModes}
@@ -506,8 +528,14 @@ dangerous: []
 
   it('reports a cross-category ambiguity between an imported entry and a main entry when /guardrail doctor runs', async () => {
     await using harness = await setup({ getFlag: () => 'read-only' })
-    const { pi, registerGuardrail, runCommand, notifications, writeFile, configPath } =
-      harness
+    const {
+      pi,
+      registerGuardrail,
+      runCommand,
+      notifications,
+      writeFile,
+      configPath,
+    } = harness
     await writeFile(
       configPath,
       `${readOnlyModes}
@@ -539,9 +567,7 @@ dangerous: [git stash]
     expect(notifications).toEqual([
       {
         level: 'warning',
-        message: expect.stringMatching(
-          /git stash[\s\S]*policy\.git\.yaml/i
-        ),
+        message: expect.stringMatching(/git stash[\s\S]*policy\.git\.yaml/i),
       },
     ])
   })

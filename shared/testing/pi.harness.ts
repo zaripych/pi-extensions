@@ -8,6 +8,7 @@ import type {
   ExtensionUIContext,
   ReadToolCallEvent,
   SessionStartEvent,
+  ThemeColor,
   ToolCallEvent,
   ToolCallEventResult,
   ToolInfo,
@@ -21,10 +22,7 @@ import { configureHarnesses } from 'foundation/testing/harness/configureHarnesse
 type ToolCallListener = (
   event: ToolCallEvent,
   ctx: ExtensionContext
-) =>
-  | ToolCallEventResult
-  | undefined
-  | Promise<ToolCallEventResult | undefined>
+) => ToolCallEventResult | undefined | Promise<ToolCallEventResult | undefined>
 
 type SessionStartListener = (
   event: SessionStartEvent,
@@ -43,9 +41,7 @@ function isToolCallListener(value: unknown): value is ToolCallListener {
   return typeof value === 'function'
 }
 
-function isSessionStartListener(
-  value: unknown
-): value is SessionStartListener {
+function isSessionStartListener(value: unknown): value is SessionStartListener {
   return typeof value === 'function'
 }
 
@@ -67,12 +63,23 @@ type Notification = {
   level?: 'info' | 'warning' | 'error'
 }
 
-type SelectResponder = (
-  title: string,
-  options: string[]
-) => string | undefined
+type SelectResponder = (title: string, options: string[]) => string | undefined
 
-const testDeps: {
+/** Types derived from pi's own custom-component factory signature. */
+type CustomFactory = Parameters<ExtensionUIContext['custom']>[0]
+type CustomFactoryArgs = Parameters<CustomFactory>
+type CustomTui = CustomFactoryArgs[0]
+type CustomTheme = CustomFactoryArgs[1]
+type CustomKeybindings = CustomFactoryArgs[2]
+type CustomDone = CustomFactoryArgs[3]
+type CustomComponent = Awaited<ReturnType<CustomFactory>>
+
+type ActiveCustom = {
+  component: CustomComponent
+  finish: CustomDone
+}
+
+const defaultTestDeps: {
   getFlag: ExtensionAPI['getFlag']
   respondToSelect: SelectResponder
   respondToConfirm: () => boolean
@@ -87,18 +94,8 @@ const testDeps: {
 }
 
 export const setupPiHarness = configureHarnesses(
-  { inferTypesFrom: { defaultDeps: testDeps } },
-  async (userDeps) =>
-    configureDependencies(
-      { userDeps },
-      {
-        getFlag: () => undefined,
-        respondToSelect: () => undefined,
-        respondToConfirm: () => false,
-        hasUI: () => true,
-        getAllTools: () => ['read', 'grep', 'find', 'ls', 'write', 'edit', 'bash'],
-      }
-    ),
+  { inferTypesFrom: { defaultDeps: defaultTestDeps } },
+  async (userDeps) => configureDependencies({ userDeps }, defaultTestDeps),
   async (userDeps) => {
     const { getFlag, respondToSelect, respondToConfirm, hasUI, getAllTools } =
       userDeps
@@ -150,8 +147,39 @@ export const setupPiHarness = configureHarnesses(
       return respondToConfirm()
     }
 
+    // ui.custom: captures the component, strips theme styling, and exposes
+    // renderCustom/pressCustom/finishCustom for driving it
+    const stubTui = fromPartial<CustomTui>({ requestRender: () => undefined })
+    const stubTheme = fromPartial<CustomTheme>({
+      fg: (_color: ThemeColor, text: string) => text,
+      bold: (text: string) => text,
+    })
+    const stubKeybindings = fromPartial<CustomKeybindings>({})
+    let activeCustom: ActiveCustom | undefined
+
+    const customImpl = (factory: CustomFactory): Promise<unknown> =>
+      new Promise((resolve) => {
+        let component: CustomComponent | undefined
+        const done: CustomDone = (result) => {
+          if (activeCustom?.component === component) {
+            activeCustom = undefined
+          }
+          component?.dispose?.()
+          resolve(result)
+        }
+        void Promise.resolve(
+          factory(stubTui, stubTheme, stubKeybindings, done)
+        ).then((created) => {
+          component = created
+          activeCustom = { component: created, finish: done }
+        })
+      })
+    // the resolved value is exactly what the factory's typed done callback
+    // received, so the unknown-to-T rebrand is safe at runtime
+    const custom: ExtensionUIContext['custom'] = fromPartial(customImpl)
+
     const ctx = fromPartial<ExtensionContext>({
-      ui: fromPartial({ notify, select, confirm }),
+      ui: fromPartial({ notify, select, confirm, custom }),
       get hasUI() {
         return hasUI()
       },
@@ -266,6 +294,33 @@ export const setupPiHarness = configureHarnesses(
       return provider(prefix)
     }
 
+    /** Renders the active ui.custom component. Do not await runCommand
+     * before the component has finished — the command handler blocks on the
+     * component's completion promise. */
+    function renderCustom(width: number): string[] {
+      if (activeCustom === undefined) {
+        throw new Error('no active ui.custom component')
+      }
+      return activeCustom.component.render(width)
+    }
+
+    /** Sends a key to the active ui.custom component's handleInput. */
+    function pressCustom(key: string): void {
+      if (activeCustom === undefined) {
+        throw new Error('no active ui.custom component')
+      }
+      activeCustom.component.handleInput?.(key)
+    }
+
+    /** Finishes the active ui.custom component; resolves its promise and
+     * disposes the component, unblocking the awaiting command handler. */
+    function finishCustom(result?: unknown): void {
+      if (activeCustom === undefined) {
+        throw new Error('no active ui.custom component')
+      }
+      activeCustom.finish(result)
+    }
+
     return {
       pi,
       toolCall,
@@ -280,6 +335,9 @@ export const setupPiHarness = configureHarnesses(
       confirmPrompts,
       activeToolsCalls,
       activeTools: () => activeToolsCalls.at(-1),
+      renderCustom,
+      pressCustom,
+      finishCustom,
     }
   }
 )

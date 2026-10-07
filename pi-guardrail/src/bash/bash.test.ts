@@ -5,7 +5,7 @@ import { setupRegisterGuardrail } from '../register.harness'
 import {
   fakeBashToolCallEvent,
   setupPiHarness,
-} from '../testing/pi.harness'
+} from 'shared/testing/pi.harness'
 
 const setup = combineHarnesses(setupPiHarness, setupRegisterGuardrail)
 
@@ -146,7 +146,9 @@ describe('bash end to end', () => {
 
     await registerGuardrail({ pi })
     const result = await toolCall(
-      fakeBashToolCallEvent({ command: `cat package.json > "${scratchOutput}"` })
+      fakeBashToolCallEvent({
+        command: `cat package.json > "${scratchOutput}"`,
+      })
     )
 
     expect(result).toBeUndefined()
@@ -159,7 +161,9 @@ describe('bash end to end', () => {
 
     await registerGuardrail({ pi })
     const result = await toolCall(
-      fakeBashToolCallEvent({ command: `cat package.json > "${escapingOutput}"` })
+      fakeBashToolCallEvent({
+        command: `cat package.json > "${escapingOutput}"`,
+      })
     )
 
     expect(result).toEqual({
@@ -256,9 +260,7 @@ describe('bash end to end', () => {
     expect(result).toBeUndefined()
     expect(selectPrompts).toEqual([
       expect.objectContaining({
-        title: expect.stringContaining(
-          'npm install && npm uninstall lodash'
-        ),
+        title: expect.stringContaining('npm install && npm uninstall lodash'),
         options: ['Abort', 'Allow once'],
       }),
     ])
@@ -356,11 +358,7 @@ describe('bash end to end', () => {
 
     expect(selectPrompts).toEqual([
       expect.objectContaining({
-        options: [
-          'Abort',
-          'Allow once',
-          'Allow exact command for session',
-        ],
+        options: ['Abort', 'Allow once', 'Allow exact command for session'],
       }),
     ])
   })
@@ -373,9 +371,7 @@ describe('bash end to end', () => {
     const { pi, registerGuardrail, toolCall, selectPrompts } = harness
 
     await registerGuardrail({ pi })
-    await toolCall(
-      fakeBashToolCallEvent({ command: 'cat $(echo foo)' })
-    )
+    await toolCall(fakeBashToolCallEvent({ command: 'cat $(echo foo)' }))
 
     expect(selectPrompts).toEqual([
       expect.objectContaining({

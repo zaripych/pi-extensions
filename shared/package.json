@@ -1,0 +1,30 @@
+{
+  "name": "shared",
+  "version": "0.1.0",
+  "description": "Shared pi harness for testing extensions against a fake ExtensionAPI",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./testing/*": "./testing/*.ts"
+  },
+  "scripts": {
+    "format": "prettier --write -u .",
+    "lint": "oxlint",
+    "test": "vitest run",
+    "test-changed": "vitest run --changed",
+    "typecheck": "tsgo --noEmit --pretty"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "devDependencies": {
+    "@total-typescript/shoehorn": "0.1.2",
+    "@typescript/native-preview": "7.0.0-dev.20260701.1",
+    "foundation": "workspace:*",
+    "oxlint": "1.71.0",
+    "prettier": "3.8.4",
+    "typescript": "6.0.3"
+  }
+}

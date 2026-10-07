@@ -7,7 +7,7 @@ import {
   fakeReadToolCallEvent,
   fakeSessionStartEvent,
   setupPiHarness,
-} from '../testing/pi.harness'
+} from 'shared/testing/pi.harness'
 
 const setup = combineHarnesses(setupPiHarness, setupRegisterGuardrail)
 
@@ -180,9 +180,7 @@ bash:
     )
 
     await registerGuardrail({ pi })
-    const before = await toolCall(
-      fakeBashToolCallEvent({ command: 'pwd' })
-    )
+    const before = await toolCall(fakeBashToolCallEvent({ command: 'pwd' }))
 
     await writeFile(
       configPath,
@@ -659,8 +657,14 @@ bash:
       getFlag: () => 'hand-hold',
       respondToConfirm: () => true,
     })
-    const { pi, registerGuardrail, runCommand, writeFile, readFile, configPath } =
-      harness
+    const {
+      pi,
+      registerGuardrail,
+      runCommand,
+      writeFile,
+      readFile,
+      configPath,
+    } = harness
     await writeFile(configPath, 'modes: [not, a, mapping]\n')
 
     await registerGuardrail({ pi })
@@ -674,8 +678,14 @@ bash:
       getFlag: () => 'hand-hold',
       respondToConfirm: () => false,
     })
-    const { pi, registerGuardrail, runCommand, writeFile, readFile, configPath } =
-      harness
+    const {
+      pi,
+      registerGuardrail,
+      runCommand,
+      writeFile,
+      readFile,
+      configPath,
+    } = harness
     const original = 'modes: [not, a, mapping]\n'
     await writeFile(configPath, original)
 
@@ -795,7 +805,9 @@ bash:
 
     expect(notifications).toEqual([
       {
-        message: expect.stringMatching(/configuration issue flagged.*\/guardrail doctor/),
+        message: expect.stringMatching(
+          /configuration issue flagged.*\/guardrail doctor/
+        ),
         level: 'warning',
       },
     ])
