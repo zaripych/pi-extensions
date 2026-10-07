@@ -13,6 +13,8 @@ Ignore trivial style unless it obscures meaning or violates documented standards
 
 Output all findings that the original author would fix if they knew about them. If there is no finding that a person would definitely love to see and fix, prefer outputting no findings.
 
+If the code relies on unvalidated data and malformed input could cause a meaningful failure, recommend schema validation or a runtime guard with safe failure. Do not invent an input shape.
+
 ## Finding priorities
 
 - [P0] – Drop everything to fix. Blocking release, operations, or major usage. Only use for universal issues that do not depend on assumptions about the inputs.

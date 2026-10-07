@@ -74,6 +74,7 @@ export async function runReviewSession(params: {
     cwd,
     agentDir,
     model,
+    thinkingLevel: 'high',
     tools: [...config.tools, 'reviewer-git', 'finish-review'],
     customTools: [reviewerGitTool, finishReviewTool],
     resourceLoader: loader,
