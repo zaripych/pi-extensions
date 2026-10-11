@@ -1,6 +1,6 @@
 # pi-extensions
 
-npm workspace root for [pi](https://github.com/mariozechner/pi) extensions.
+npm workspace root for [pi](https://github.com/earendil-works/pi) extensions.
 
 ## Subtrees
 
@@ -9,13 +9,19 @@ npm workspace root for [pi](https://github.com/mariozechner/pi) extensions.
 | `pi-web-fetch/`  | https://github.com/georgebashi/pi-web-fetch (main) |
 | `pi-sandbox/`    | https://github.com/carderne/pi-sandbox (main)      |
 | `pi-neuralwatt/` | https://github.com/aliou/pi-neuralwatt (main)      |
+| `pi-annotate/`   | https://github.com/jackice/pi-annotate (main)      |
 
 ### Pull updates
 
 ```bash
 git subtree pull --prefix=pi-web-fetch https://github.com/georgebashi/pi-web-fetch main --squash
-# or for pi-neuralwatt:
+#
+# For pi-neuralwatt:
 # git subtree pull --prefix=pi-neuralwatt git@github.com:aliou/pi-neuralwatt.git main --squash
+#
+# For pi-annotate:
+# git subtree pull --prefix=pi-annotate https://github.com/jackice/pi-annotate main --squash
+#
 ```
 
 ### Add a new subtree
