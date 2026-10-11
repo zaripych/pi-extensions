@@ -3,388 +3,440 @@
  * @date 2026-05-15
  */
 
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
-import { readFileSync, existsSync } from "node:fs";
-import { execFileSync } from "node:child_process";
-import { createRequire } from "node:module";
-import * as os from "node:os";
+import { fileURLToPath } from 'node:url'
+import { dirname, extname, resolve } from 'node:path'
+import { readFile, stat } from 'node:fs/promises'
+import { execFileSync, spawn } from 'node:child_process'
+import { platform } from 'node:os'
 import type {
   ExtensionAPI,
   ExtensionContext,
   ExtensionCommandContext,
-} from "@earendil-works/pi-coding-agent";
-import { startAnnotationServer, type Annotation } from "./server.js";
-
-// ── Types ──────────────────────────────────────────────────────────────
+} from '@earendil-works/pi-coding-agent'
+import { startAnnotationServer, type Annotation } from './server.js'
 
 interface GlimpseWindow {
-  on(event: "closed", handler: () => void): void;
-  close(): void;
+  on(event: 'closed', handler: (ok: boolean) => void): void
+  close(): void
 }
 
-// ── Glimpse Integration ────────────────────────────────────────────────
-
-let glimpseOpen: ((html: string, opts: Record<string, unknown>) => GlimpseWindow) | null | undefined;
-
-function findGlimpseMjs(): string | null {
-  try {
-    const req = createRequire(import.meta.url);
-    return req.resolve("glimpseui");
-  } catch {
-    // not in local node_modules
-  }
-  try {
-    const globalRoot = execFileSync("npm", ["root", "-g"], { encoding: "utf-8" }).trim();
-    const entry = resolve(globalRoot, "glimpseui", "src", "glimpse.mjs");
-    if (existsSync(entry)) return entry;
-  } catch {
-    // npm root -g failed
-  }
-  return null;
+type Decision = {
+  action: 'feedback' | 'approve' | 'exit'
+  feedback?: string
+  annotations?: Annotation[]
 }
 
-async function getGlimpseOpen(): Promise<typeof glimpseOpen> {
-  if (glimpseOpen !== undefined) return glimpseOpen;
-  const resolved = findGlimpseMjs();
-  if (resolved) {
-    try {
-      glimpseOpen = (await import(resolved)).open;
-      return glimpseOpen;
-    } catch {
-      // import failed
-    }
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return true
+  } catch {
+    return false
   }
-  glimpseOpen = null;
-  return glimpseOpen;
+}
+
+function findGlimpseBin(): string | null {
+  try {
+    const bin = execFileSync('which', ['glimpseui'], {
+      encoding: 'utf-8',
+    }).trim()
+    return bin || null
+  } catch {
+    return null
+  }
 }
 
 function escapeHtml(str: string): string {
   return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
-function openInGlimpse(
-  open: (html: string, opts: Record<string, unknown>) => GlimpseWindow,
-  url: string,
-  title?: string,
-): GlimpseWindow {
-  const safeTitle = escapeHtml(title || "批注");
+function openInGlimpse(bin: string, url: string, title: string): GlimpseWindow {
+  const safeTitle = escapeHtml(title || 'Annotate')
   const shellHTML = `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><title>${safeTitle}</title></head>
 <body style="margin:0; background:#1a1a2e;">
   <script>window.location.replace(${JSON.stringify(url)});</script>
 </body>
-</html>`;
-  return open(shellHTML, { width: 900, height: 750, title: title || "批注" });
+</html>`
+
+  const child = spawn(
+    bin,
+    ['--width', '900', '--height', '750', '--title', title || 'Annotate'],
+    {
+      stdio: ['pipe', 'ignore', 'ignore'],
+    }
+  )
+
+  let onClosed: ((ok: boolean) => void) | null = null
+  let settled = false
+  const settle = (ok: boolean) => {
+    if (!settled) {
+      settled = true
+      onClosed?.(ok)
+    }
+  }
+  child.once('exit', (code) => settle(code === 0))
+  child.on('error', () => settle(false))
+  child.stdin.on('error', () => {})
+  child.stdin.end(shellHTML)
+
+  return {
+    on: (event, handler) => {
+      if (event === 'closed') onClosed = handler
+    },
+    close: () => child.kill(),
+  }
+}
+
+/**
+ * Waits for the annotation outcome. A Glimpse window that fails to start
+ * (spawn error, non-zero exit) resolves to "failed" instead of resolving an
+ * exit decision, so the caller can fall back to the browser.
+ */
+function waitForGlimpseDecision(
+  server: {
+    waitForDecision: () => Promise<Decision>
+    resolveDecision: (decision: Decision) => void
+  },
+  glimpseWin: GlimpseWindow
+): Promise<Decision | 'failed'> {
+  const failure = new Promise<'failed'>((done) => {
+    glimpseWin.on('closed', (ok) => {
+      if (ok) {
+        server.resolveDecision({ action: 'exit' })
+      } else {
+        done('failed')
+      }
+    })
+  })
+  return Promise.race([server.waitForDecision(), failure])
 }
 
 async function openUrl(pi: ExtensionAPI, url: string): Promise<void> {
-  const platform = os.platform();
-  let result: { code: number; stderr?: string };
-  if (platform === "darwin") {
-    result = await pi.exec("open", [url]);
-  } else if (platform === "win32") {
-    result = await pi.exec("cmd", ["/c", "start", "", url]);
+  let result: { code: number; stderr?: string }
+  if (platform() === 'darwin') {
+    result = await pi.exec('open', [url])
+  } else if (platform() === 'win32') {
+    result = await pi.exec('cmd', ['/c', 'start', '', url])
   } else {
-    result = await pi.exec("xdg-open", [url]);
+    result = await pi.exec('xdg-open', [url])
   }
   if (result.code !== 0) {
-    throw new Error(result.stderr || `Failed to open browser (exit code ${result.code})`);
+    throw new Error(
+      result.stderr || `Failed to open browser (exit code ${result.code})`
+    )
   }
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────
-
 function getLastAssistantMessageText(ctx: ExtensionContext): string | null {
-  const entries = ctx.sessionManager.getBranch();
+  const entries = ctx.sessionManager.getBranch()
   for (let i = entries.length - 1; i >= 0; i--) {
-    const entry = entries[i];
-    if (entry.type === "message" && "message" in entry) {
-      const msg = entry.message;
-      if (msg.role === "assistant") {
-        const parts = msg.content.filter((c) => c.type === "text");
-        const text = parts.map((c) => c.text).join("").trim();
-        if (text) return text;
+    const entry = entries[i]
+    if (!entry) continue
+    if (entry.type === 'message' && 'message' in entry) {
+      const msg = entry.message
+      if (msg.role === 'assistant') {
+        const parts = msg.content.filter((c) => c.type === 'text')
+        const text = parts
+          .map((c) => c.text)
+          .join('')
+          .trim()
+        if (text) return text
       }
     }
   }
-  return null;
+  return null
 }
 
-function formatAnnotationFeedback(
+const MARKDOWN_EXTENSIONS = /^(md|markdown|mdx)$/i
+
+export function formatAnnotationFeedback(
   annotations: Annotation[],
-  sourceInfo: string,
+  title: string,
+  extension?: string
 ): string {
-  if (!annotations || annotations.length === 0) return "";
+  if (!annotations || annotations.length === 0) return ''
   const items = annotations
     .map((a) => {
-      const tag = a.type === "comment" ? "Comment" : a.type === "suggestion" ? "Suggestion" : a.type === "issue" ? "Issue" : "Praise";
-      return `- **${a.type}**: ${tag}
-  > Original text: "${a.originalText || "(none)"}"
-  ${a.text}`;
+      const item: string[] = ['- Comment']
+      const quoteLines = a.originalText
+        ? a.originalText.replace(/\n+$/, '').split('\n')
+        : []
+      if (quoteLines.length > 0) {
+        if (a.line !== undefined) {
+          const line = a.line
+          const longestRun = Math.max(
+            2,
+            ...(a.originalText.match(/`{3,}/g)?.map((run) => run.length) ?? [])
+          )
+          const fence = '`'.repeat(Math.max(3, longestRun + 1))
+          const snippet = quoteLines
+            .slice(0, 10)
+            .map((text, i) => `  > ${line + i} ${text}`)
+          if (quoteLines.length > 10) snippet.push(`  > ${line + 10} …`)
+          item.push('', `  > ${fence}${extension}`, ...snippet, `  > ${fence}`)
+        } else {
+          item.push('', ...quoteLines.map((line) => `  > ${line}`))
+        }
+      }
+      if (a.text)
+        item.push('', ...a.text.split('\n').map((line) => `  ${line}`))
+      return item.join('\n')
     })
-    .join("\n\n");
+    .join('\n\n')
 
-  const hasIssues = annotations.some((a) => a.type === "issue");
-  const hasSuggestions = annotations.some((a) => a.type === "suggestion");
-  let ending: string;
-  if (hasIssues) {
-    ending = "Please address the issues above.";
-  } else if (hasSuggestions) {
-    ending = "Please revise according to the suggestions above.";
-  } else {
-    ending = "Please consider the feedback above.";
-  }
-
-  return `## Annotation Feedback\n\nThe following feedback was provided for ${sourceInfo}:\n\n${items}\n\n${ending}`;
+  return `## Annotation Feedback\n\nThe following feedback was provided for ${title}:\n\n${items}\n\nPlease address the feedback above.`
 }
 
-// ── Shared annotation flow ─────────────────────────────────────────────
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 async function readAnnotateHtml(): Promise<string> {
-  const htmlPath = resolve(__dirname, "form", "annotate.html");
-  return readFileSync(htmlPath, "utf-8");
+  const htmlPath = resolve(__dirname, 'form', 'annotate.html')
+  return readFile(htmlPath, 'utf-8')
 }
 
 async function openAnnotationServer(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
   options: {
-    markdown: string;
-    mode: "annotate" | "annotate-last";
-    sourceInfo: string;
-  },
+    content: string
+    mode: 'annotate' | 'annotate-last'
+    title: string
+    textFile?: { extension: string }
+  }
 ): Promise<void> {
-  const htmlContent = await readAnnotateHtml();
+  const htmlContent = await readAnnotateHtml()
 
   const server = await startAnnotationServer({
-    markdown: options.markdown,
+    content: options.content,
     htmlContent,
     mode: options.mode,
-    sourceInfo: options.sourceInfo,
-    gate: false,
-  });
+    title: options.title,
+    textFile: options.textFile,
+  })
 
-
-
-  let glimpseWin: GlimpseWindow | null = null;
-
-  // macOS 上优先 Glimpse，回退浏览器
-  if (os.platform() === "darwin") {
-    const glimpseOpenFn = await getGlimpseOpen();
-    if (glimpseOpenFn) {
+  if (platform() === 'darwin') {
+    const glimpseBin = findGlimpseBin()
+    if (glimpseBin) {
       try {
-        glimpseWin = openInGlimpse(glimpseOpenFn, server.url, `批注: ${options.sourceInfo}`);
-        ctx.ui.notify("批注窗口已打开，完成后关闭即可。", "info");
+        const glimpseWin = openInGlimpse(
+          glimpseBin,
+          server.url,
+          `Annotate: ${options.title}`
+        )
+        ctx.ui.notify('Annotation window opened. Close it when done.', 'info')
 
-        // 监听 Glimpse 窗口关闭事件 — 窗口关闭时直接决议退出，不依赖 HTTP fetch
-        let windowClosed = false;
-        glimpseWin.on("closed", () => {
-          windowClosed = true;
-          server.resolveDecision({ action: "exit" });
-        });
-
-        // 等待决策
-        const decision = await server.waitForDecision();
-
-        // 窗口关闭触发的 exit，静默处理
-        if (decision.action === "exit" && windowClosed) {
-          server.stop();
-          return;
+        const outcome = await waitForGlimpseDecision(server, glimpseWin)
+        if (outcome === 'failed') {
+          throw new Error('Glimpse window failed to launch')
         }
-
-        handleAnnotationDecision(pi, ctx, decision, options.sourceInfo, options.markdown);
-        server.stop();
-        return;
+        if (outcome.action !== 'exit') {
+          handleAnnotationDecision(
+            pi,
+            ctx,
+            outcome,
+            options.title,
+            options.textFile?.extension
+          )
+        }
+        server.stop()
+        return
       } catch (err) {
-        ctx.ui.notify(`Glimpse 失败，回退浏览器: ${err instanceof Error ? err.message : String(err)}`, "warning");
+        ctx.ui.notify(
+          `Glimpse failed, falling back to browser: ${err instanceof Error ? err.message : String(err)}`,
+          'warning'
+        )
       }
     }
   }
 
-  // 回退：浏览器打开
   try {
-    await openUrl(pi, server.url);
-    const decision = await server.waitForDecision();
-    handleAnnotationDecision(pi, ctx, decision, options.sourceInfo, options.markdown);
-    server.stop();
+    await openUrl(pi, server.url)
+    const decision = await server.waitForDecision()
+    handleAnnotationDecision(
+      pi,
+      ctx,
+      decision,
+      options.title,
+      options.textFile?.extension
+    )
+    server.stop()
   } catch (err) {
-    ctx.ui.notify(`打开批注失败: ${err instanceof Error ? err.message : String(err)}`, "error");
+    ctx.ui.notify(
+      `Failed to open annotation: ${err instanceof Error ? err.message : String(err)}`,
+      'error'
+    )
   }
 }
 
 function handleAnnotationDecision(
   pi: ExtensionAPI,
-  ctx: ExtensionCommandContext,
-  decision: { action: "feedback" | "approve" | "exit"; feedback?: string; annotations?: Annotation[] },
-  sourceInfo: string,
-  originalMarkdown: string,
+  ctx: ExtensionContext,
+  decision: Decision,
+  title: string,
+  extension?: string
 ): void {
   switch (decision.action) {
-    case "feedback": {
-      let feedbackText = decision.feedback;
-      // 如果有结构化 annotations 但无 feedback 文本，生成格式化反馈
-      if (!feedbackText && decision.annotations && decision.annotations.length > 0) {
-        feedbackText = formatAnnotationFeedback(decision.annotations, sourceInfo);
+    case 'feedback': {
+      let feedbackText = decision.feedback
+      if (
+        !feedbackText &&
+        decision.annotations &&
+        decision.annotations.length > 0
+      ) {
+        feedbackText = formatAnnotationFeedback(
+          decision.annotations,
+          title,
+          extension
+        )
       }
-      // 如果还没有反馈文本，使用默认格式
       if (!feedbackText) {
-        feedbackText = `## Annotation Feedback\n\nThe following feedback was provided for ${sourceInfo}. Please revise according to the suggestions above.`;
+        feedbackText = `## Annotation Feedback\n\nThe following feedback was provided for ${title}. Please revise according to the suggestions above.`
       }
-      pi.sendUserMessage(feedbackText, { deliverAs: "followUp" });
-      break;
+      pi.sendUserMessage(feedbackText, { deliverAs: 'followUp' })
+      break
     }
-    case "approve":
-      ctx.ui.notify(`${sourceInfo} 已批准`, "success");
-      break;
-    case "exit":
-      // 静默关闭
-      break;
+    case 'approve':
+      ctx.ui.notify(`${title} approved`, 'info')
+      break
+    case 'exit':
+      break
   }
 }
 
-// ── Extension Entry ────────────────────────────────────────────────────
-
 export default function (pi: ExtensionAPI) {
-  // ── Command: /annotate-last ──────────────────────────────────────────
-
-  pi.registerCommand("annotate-last", {
-    description: "批注当前会话中最后一条 assistant 消息",
+  pi.registerCommand('annotate-last', {
+    description: 'Annotate the last assistant message in the current session',
     handler: async (_args: string, ctx: ExtensionCommandContext) => {
-      const text = getLastAssistantMessageText(ctx);
+      const text = getLastAssistantMessageText(ctx)
       if (!text) {
-        ctx.ui.notify("未找到 assistant 消息", "error");
-        return;
+        ctx.ui.notify('No assistant message found', 'error')
+        return
       }
 
-      ctx.ui.notify("正在打开最后一条消息的批注...", "info");
+      ctx.ui.notify('Opening annotation for the last message...', 'info')
 
       return openAnnotationServer(pi, ctx, {
-        markdown: text,
-        mode: "annotate-last",
-        sourceInfo: "最后一条消息",
-      });
+        content: text,
+        mode: 'annotate-last',
+        title: 'the last message',
+      })
     },
-  });
+  })
 
-  // ── Command: /annotate <file> ────────────────────────────────────────
-
-  pi.registerCommand("annotate", {
-    description: "批注指定的 markdown 文档",
+  pi.registerCommand('annotate', {
+    description: 'Annotate a markdown document',
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       try {
-        const filePath = args.trim().replace(/^@/, "");
-
+        const filePath = args.trim().replace(/^@/, '')
 
         if (!filePath) {
-          ctx.ui.notify("用法: /annotate <file.md>", "error");
-          return;
+          ctx.ui.notify('Usage: /annotate <file>', 'error')
+          return
         }
 
-        const absolutePath = resolve(ctx.cwd, filePath);
+        const absolutePath = resolve(ctx.cwd, filePath)
 
-
-        if (!existsSync(absolutePath)) {
-          ctx.ui.notify(`文件不存在: ${absolutePath}`, "error");
-          return;
+        if (!(await fileExists(absolutePath))) {
+          ctx.ui.notify(`File not found: ${absolutePath}`, 'error')
+          return
         }
 
-        ctx.ui.notify(`正在打开 ${filePath} 的批注...`, "info");
+        ctx.ui.notify(`Opening annotation for ${filePath}...`, 'info')
 
-        const content = readFileSync(absolutePath, "utf-8");
+        const raw = await readFile(absolutePath, 'utf-8')
+        const ext = extname(absolutePath).slice(1)
+        const isMarkdown = !ext || MARKDOWN_EXTENSIONS.test(ext)
 
         return openAnnotationServer(pi, ctx, {
-          markdown: content,
-          mode: "annotate",
-          sourceInfo: filePath,
-        });
+          // Normalize CRLF for text files: the page computes line numbers and
+          // offsets against this content, and line numbering is invariant
+          // under CRLF → LF. Markdown keeps its original bytes.
+          content: isMarkdown ? raw : raw.replace(/\r\n/g, '\n'),
+          mode: 'annotate',
+          title: filePath,
+          textFile: isMarkdown ? undefined : { extension: ext },
+        })
       } catch (err) {
-        ctx.ui.notify(`批注失败: ${err instanceof Error ? err.message : String(err)}`, "error");
+        ctx.ui.notify(
+          `Annotation failed: ${err instanceof Error ? err.message : String(err)}`,
+          'error'
+        )
       }
     },
-  });
+  })
 
-  // ── Hook: turn_end 自动检测 ──────────────────────────────────────────
+  pi.on('turn_end', async (event, ctx) => {
+    if (event.message.role !== 'assistant') return
 
-  pi.on("turn_end", async (event, ctx) => {
-    // 只处理 assistant 消息
-    if (event.message.role !== "assistant") return;
+    const parts = event.message.content.filter((c) => c.type === 'text')
+    const text = parts.map((c) => c.text).join('')
+    if (!text) return
 
-    const parts = event.message.content.filter((c) => c.type === "text");
-    const text = parts.map((c) => c.text).join("");
-    if (!text) return;
+    const pattern = /docs\/superpowers\/(specs|plans)\/[^\s,.;:()!?]+\.md/g
+    const matches = text.match(pattern)
+    if (!matches || matches.length === 0) return
 
-    // 匹配 docs/superpowers/ 下的文件路径
-    const pattern = /docs\/superpowers\/(specs|plans)\/[^\s,.;:()!?]+\.md/g;
-    const matches = text.match(pattern);
-    if (!matches || matches.length === 0) return;
-
-    let foundPath: string | null = null;
+    let foundPath: string | null = null
     for (const match of matches) {
-      const absolutePath = resolve(ctx.cwd, match);
-      if (existsSync(absolutePath)) {
-        foundPath = absolutePath;
-        break;
+      const absolutePath = resolve(ctx.cwd, match)
+      if (await fileExists(absolutePath)) {
+        foundPath = absolutePath
+        break
       }
     }
 
-    if (!foundPath) return;
+    if (!foundPath) return
 
-    ctx.ui.notify("检测到新文档，正在打开批注...", "info");
+    ctx.ui.notify('New document detected, opening annotation...', 'info')
 
-    const content = readFileSync(foundPath, "utf-8");
-    const htmlContent = await readAnnotateHtml();
+    const content = await readFile(foundPath, 'utf-8')
+    const htmlContent = await readAnnotateHtml()
 
     try {
       const server = await startAnnotationServer({
-        markdown: content,
+        content,
         htmlContent,
-        mode: "annotate",
-        sourceInfo: foundPath,
-        gate: false,
-      });
+        mode: 'annotate',
+        title: foundPath,
+      })
 
-      // macOS 上优先 Glimpse
-      if (os.platform() === "darwin") {
-        const glimpseOpenFn = await getGlimpseOpen();
-        if (glimpseOpenFn) {
+      if (platform() === 'darwin') {
+        const glimpseBin = findGlimpseBin()
+        if (glimpseBin) {
           try {
-            const glimpseWin = openInGlimpse(glimpseOpenFn, server.url, `批注: ${foundPath}`);
-            let windowClosed = false;
-            glimpseWin.on("closed", () => {
-              windowClosed = true;
-              server.resolveDecision({ action: "exit" });
-            });
-            const decision = await server.waitForDecision();
-            if (decision.action === "exit" && windowClosed) {
-              server.stop();
-              return;
+            const glimpseWin = openInGlimpse(
+              glimpseBin,
+              server.url,
+              `Annotate: ${foundPath}`
+            )
+            const outcome = await waitForGlimpseDecision(server, glimpseWin)
+            if (outcome === 'failed') {
+              throw new Error('Glimpse window failed to launch')
             }
-            if (!(decision.action === "exit" && windowClosed)) {
-              handleAnnotationDecision(pi, ctx, decision, foundPath, content);
+            if (outcome.action !== 'exit') {
+              handleAnnotationDecision(pi, ctx, outcome, foundPath)
             }
-            server.stop();
-            return;
-          } catch {
-            // 回退浏览器
-          }
+            server.stop()
+            return
+          } catch {}
         }
       }
 
-      await openUrl(pi, server.url);
-      const decision = await server.waitForDecision();
-      handleAnnotationDecision(pi, ctx, decision, foundPath, content);
-      server.stop();
+      await openUrl(pi, server.url)
+      const decision = await server.waitForDecision()
+      handleAnnotationDecision(pi, ctx, decision, foundPath)
+      server.stop()
     } catch (err) {
-      console.error(`自动批注失败: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(
+        `Auto-annotation failed: ${err instanceof Error ? err.message : String(err)}`
+      )
     }
-  });
+  })
 }

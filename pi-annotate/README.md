@@ -23,6 +23,7 @@ pi install /path/to/pi-annotate
 Restart pi or run `/reload` to load the extension.
 
 **Requirements:**
+
 - pi-agent v0.35.0 or later (extensions API)
 - For native macOS window: `npm install -g glimpseui@">=0.8.1"` (optional, falls back to browser if not installed) — Glimpse 0.8.1+ required for native clipboard support (`⌘C`/`⌘V`)
 
@@ -53,6 +54,7 @@ Restart pi or run `/reload` to load the extension.
 ```
 
 **Lifecycle:**
+
 1. Agent writes a spec/plan document, or you run `/annotate <file>` or `/annotate-last`
 2. Local server starts → Glimpse window opens (macOS) or browser tab (elsewhere)
 3. Select text in the document → floating toolbar appears with annotation actions
@@ -87,6 +89,7 @@ Annotate a specific markdown file:
 ```
 
 Supports:
+
 - Relative paths (from current working directory)
 - Absolute paths
 - `@` prefix notation (e.g., `@docs/superpowers/specs/...`)
@@ -101,33 +104,34 @@ When an agent creates or modifies a file under `docs/superpowers/specs/` or `doc
 
 Select any text to reveal a floating toolbar with four actions:
 
-| Button | Action | Description |
-|--------|--------|-------------|
-| 💬 Comment | Opens text input | Type detailed feedback about the selected text |
-| 🗑️ Delete | Creates issue annotation | Suggests removing the selected section |
-| ⚡ Quick Label | Opens preset picker | One-click labels for common feedback |
-| 👍 Looks Good | Creates praise annotation | Marks the selected text as good |
+| Button         | Action                    | Description                                    |
+| -------------- | ------------------------- | ---------------------------------------------- |
+| 💬 Comment     | Opens text input          | Type detailed feedback about the selected text |
+| 🗑️ Delete      | Creates issue annotation  | Suggests removing the selected section         |
+| ⚡ Quick Label | Opens preset picker       | One-click labels for common feedback           |
+| 👍 Looks Good  | Creates praise annotation | Marks the selected text as good                |
 
 ### Quick Labels
 
 Preset labels for common feedback on specs, plans, and messages:
 
-| Key | Label | Description |
-|-----|-------|-------------|
-| 1 | ❓ Needs Clarification | The selected section requires further explanation |
-| 2 | 📋 Missing Details | Key details or specifics are absent |
-| 3 | 🔍 Verify Assumption | Underlying assumption needs to be validated |
-| 4 | 🔬 Missing Example | A concrete example would improve understanding |
-| 5 | ⚖️ Trade-off Analysis | Pros and cons of this approach should be discussed |
-| 6 | 🏗️ Over-engineered | The proposed solution is more complex than needed |
-| 7 | 🚫 Out of Scope | This item falls outside the defined scope |
-| 8 | ⚠️ Edge Case Missing | Potential edge cases have not been addressed |
-| 9 | 📐 Well-structured | The structure and organization are clear |
-| 0 | 👍 Good Approach | The proposed approach is sound |
+| Key | Label                  | Description                                        |
+| --- | ---------------------- | -------------------------------------------------- |
+| 1   | ❓ Needs Clarification | The selected section requires further explanation  |
+| 2   | 📋 Missing Details     | Key details or specifics are absent                |
+| 3   | 🔍 Verify Assumption   | Underlying assumption needs to be validated        |
+| 4   | 🔬 Missing Example     | A concrete example would improve understanding     |
+| 5   | ⚖️ Trade-off Analysis  | Pros and cons of this approach should be discussed |
+| 6   | 🏗️ Over-engineered     | The proposed solution is more complex than needed  |
+| 7   | 🚫 Out of Scope        | This item falls outside the defined scope          |
+| 8   | ⚠️ Edge Case Missing   | Potential edge cases have not been addressed       |
+| 9   | 📐 Well-structured     | The structure and organization are clear           |
+| 0   | 👍 Good Approach       | The proposed approach is sound                     |
 
 ### Annotation Panel
 
 All annotations appear in the right sidebar panel. Each annotation shows:
+
 - Type badge with color coding (Comment/Suggestion/Issue/Praise)
 - Annotation text
 - Original selected text preview
@@ -136,9 +140,9 @@ All annotations appear in the right sidebar panel. Each annotation shows:
 
 ## Keyboard Shortcuts
 
-| Key | Action |
-|-----|--------|
-| `⌘+Shift+L` | Toggle dark/light theme (`Ctrl` off macOS) |
+| Key          | Action                                          |
+| ------------ | ----------------------------------------------- |
+| `⌘+Shift+L`  | Toggle dark/light theme (`Ctrl` off macOS)      |
 | `1`-`9`, `0` | Select Quick Label by number (when picker open) |
 
 ## File Structure
@@ -148,7 +152,9 @@ pi-annotate/
 ├── index.ts              # Extension entry point, commands, Glimpse integration
 ├── server.ts              # Annotation HTTP server (API routes)
 ├── form/
-│   └── annotate.html      # Annotation UI (pure HTML/CSS/JS, no build step)
+│   └── annotate.html      # Annotation UI (pure HTML/CSS/JS)
+├── form-src/              # Markdown/text renderer (unified + remark + shiki);
+│                          # bundled in-memory by the server on first request
 ├── package.json
 └── README.md
 ```
@@ -172,6 +178,7 @@ Please address the issues above.
 ```
 
 The ending is context-aware:
+
 - If there are **issues**: "Please address the issues above."
 - If there are **suggestions**: "Please revise according to the suggestions above."
 - Otherwise: "Please consider the feedback above."
