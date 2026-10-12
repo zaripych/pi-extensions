@@ -3,8 +3,9 @@ import type {
   AccumulatedResult,
   AnyHarness,
   ExtractDeps,
+  HarnessOverrides,
   MockifyFunctions,
-  SimplifyDeps,
+  MockifyObjectDependencies,
   UserDepsMark,
 } from './types'
 
@@ -31,7 +32,7 @@ type ResultAfterDefaults<
   Omit<ExtractDeps<Source> & D, keyof AccumulatedResult<Middle>> &
     AccumulatedResult<Middle>
 > &
-  R &
+  MockifyObjectDependencies<R> &
   AsyncDisposable
 
 function hasInferTypesFrom(
@@ -44,14 +45,20 @@ function hasInferTypesFrom(
 
 export function configureHarnesses<R>(
   last: (deps: UserDepsMark<Record<never, never>>) => MaybePromise<R>
-): (overrides?: Partial<SimplifyDeps<R>>) => Promise<R & AsyncDisposable>
+): (
+  overrides?: HarnessOverrides<R>
+) => Promise<MockifyObjectDependencies<R> & AsyncDisposable>
 
 export function configureHarnesses<Init extends AnyHarness, R>(
   init: Init,
   last: (deps: UserDepsMark<AccumulatedResult<[Init]>>) => MaybePromise<R>
 ): (
-  overrides?: Partial<SimplifyDeps<AccumulatedResult<[Init]> & R>>
-) => Promise<MockifyFunctions<AccumulatedResult<[Init]>> & R & AsyncDisposable>
+  overrides?: HarnessOverrides<AccumulatedResult<[Init]> & R>
+) => Promise<
+  MockifyFunctions<AccumulatedResult<[Init]>> &
+    MockifyObjectDependencies<R> &
+    AsyncDisposable
+>
 
 export function configureHarnesses<
   D,
@@ -68,12 +75,12 @@ export function configureHarnesses<
     ) => MaybePromise<R>,
   ]
 ): (
-  overrides?: Partial<SimplifyDeps<D & AccumulatedResult<Middle> & R>>
+  overrides?: HarnessOverrides<D & AccumulatedResult<Middle> & R>
 ) => Promise<
   MockifyFunctions<
     Omit<D, keyof AccumulatedResult<Middle>> & AccumulatedResult<Middle>
   > &
-    R &
+    MockifyObjectDependencies<R> &
     AsyncDisposable
 >
 
@@ -81,8 +88,8 @@ export function configureHarnesses<const Source extends HarnessTypeSource, R>(
   params: { inferTypesFrom: Source },
   last: (deps: SetupInput<Source>) => MaybePromise<R>
 ): (
-  overrides?: Partial<SimplifyDeps<ExtractDeps<Source> & R>>
-) => Promise<R & AsyncDisposable>
+  overrides?: HarnessOverrides<ExtractDeps<Source> & R>
+) => Promise<MockifyObjectDependencies<R> & AsyncDisposable>
 
 export function configureHarnesses<
   const Source extends HarnessTypeSource,
@@ -97,8 +104,8 @@ export function configureHarnesses<
     (deps: LastSetupInput<Source, D, Middle>) => MaybePromise<R>,
   ]
 ): (
-  overrides?: Partial<
-    SimplifyDeps<ExtractDeps<Source> & D & AccumulatedResult<Middle> & R>
+  overrides?: HarnessOverrides<
+    ExtractDeps<Source> & D & AccumulatedResult<Middle> & R
   >
 ) => Promise<ResultAfterDefaults<Source, D, Middle, R>>
 

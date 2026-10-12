@@ -23,6 +23,8 @@ those deps with test doubles.
   `vi.fn`** (via `wrapOnce` — already-mocked functions are not re-wrapped). This
   means tests can call `.mockImplementation()`, `.toHaveBeenCalledWith()`, etc.
   on any harness-provided function without extra setup.
+- **Methods on object dependencies are wrapped in place**, preserving identity
+  and `this` — see [Object dependencies](#object-dependencies).
 - **Tests never import dependencies directly.** All dependencies — database
   clients, external services, etc. — must flow through harnesses. Tests receive
   them from the harness object, never from direct imports. If a harness for a
@@ -108,6 +110,14 @@ await using harness = await setup()
 // harness has all keys from both harnesses
 ```
 
+Each harness runs once per setup call, identified by its function reference,
+including shared dependencies inside nested combinations. Repeated references
+reuse accumulated results and register disposal only once. Separate setup calls
+run harnesses afresh.
+
+Result keys must be unique across distinct harnesses — no two different harnesses
+should return the same property name.
+
 Overrides are passed at call time:
 
 ```ts
@@ -115,6 +125,48 @@ await using harness = await setup({
   createDbClient: () => myCustomDb,
 })
 ```
+
+### Object dependencies
+
+An **object dependency** is a plain object or class instance returned under a
+harness result key. Except for the deny-listed values below, `combineHarnesses`
+wraps its methods in place instead of replacing the value:
+
+- String-keyed methods on the instance and its prototype chain up to
+  `Object.prototype` are wrapped with `vi.fn`. `constructor` is never
+  wrapped.
+- Only data descriptors are wrapped — accessors are never invoked or replaced.
+- Already-mocked functions are not re-wrapped.
+- Identity and `instanceof` are preserved: the returned value is the same
+  instance the harness created.
+- `this` is preserved — a wrapped method still reads private fields.
+- Functions, primitives, and deny-listed classes (`Array`, `Map`, `Set`,
+  `WeakMap`, `WeakSet`, `Date`, `RegExp`, `Promise`, `Error`, `ArrayBuffer`,
+  and `ArrayBuffer` views) are never wrapped as object dependencies.
+
+Because methods are `vi.fn`, tests can assert on them and use
+`.mockImplementation()`:
+
+```ts
+expect(harness.store.list()).toEqual([{ id: 'u1' }])
+expect(harness.store.cancel).toHaveBeenCalledWith('u1')
+```
+
+Object dependency overrides merge **in place**: the override object's own
+enumerable properties are assigned onto the object after the producing harness
+returns, so later harnesses and the final harness result share the same instance.
+Sibling methods that are not overridden stay real.
+
+```ts
+await using harness = await setup({
+  store: { list: () => ['override'] },
+})
+
+// harness.store.cancel is untouched and real;
+// harness.store.list is the override above.
+```
+
+The harness for a factory is `{ ...deps, ...createX(deps) }`.
 
 ### `configureHarnesses(...setups)` / `configureHarnesses({ inferTypesFrom }, ...setups)`
 

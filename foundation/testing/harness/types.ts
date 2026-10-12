@@ -1,4 +1,4 @@
-import type { Mock, MockedFunction } from 'vitest'
+import type { MockInstance, Mock, MockedFunction } from 'vitest'
 
 type SimplifyFunction<T> = T extends (...args: infer A) => infer R
   ? (...args: A) => R
@@ -24,10 +24,54 @@ export type HarnessResult<H extends AnyHarness> = Awaited<ReturnType<H>>
 
 export type OmitDispose<T> = Omit<T, typeof Symbol.asyncDispose>
 
+type DenyListedObject =
+  | readonly unknown[]
+  | Map<unknown, unknown>
+  | Set<unknown>
+  | WeakMap<object, unknown>
+  | WeakSet<object>
+  | Date
+  | RegExp
+  | Promise<unknown>
+  | Error
+  | ArrayBuffer
+  | ArrayBufferView
+
+type IfWrappableObject<T> = T extends AnyFunction
+  ? false
+  : T extends DenyListedObject
+    ? false
+    : T extends object
+      ? true
+      : false
+
+type MockifyObjectMethods<T> = {
+  [K in keyof T & string as K extends 'constructor'
+    ? never
+    : K]: T[K] extends AnyFunction ? T[K] & MockInstance<T[K]> : T[K]
+} & T
+
 export type MockifyFunctions<T> = {
   [K in keyof T]: T[K] extends (...args: infer A) => infer R
     ? Mock<(...args: A) => R>
+    : IfWrappableObject<T[K]> extends true
+      ? MockifyObjectMethods<T[K]>
+      : T[K]
+}
+
+export type MockifyObjectDependencies<T> = {
+  [K in keyof T]: IfWrappableObject<T[K]> extends true
+    ? MockifyObjectMethods<T[K]>
     : T[K]
+}
+
+type SimplifyIfNotWrappableObject<T> =
+  IfWrappableObject<T> extends true ? T : SimplifyFunction<T>
+
+export type HarnessOverrides<T> = {
+  [K in keyof T]?: IfWrappableObject<T[K]> extends true
+    ? Partial<SimplifyDeps<T[K]>>
+    : SimplifyIfNotWrappableObject<T[K]>
 }
 
 export type CombinedResult<Harnesses extends AnyHarness[]> = MockifyFunctions<

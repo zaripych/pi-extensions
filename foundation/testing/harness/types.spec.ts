@@ -1,6 +1,7 @@
 import { expectTypeOf } from 'expect-type'
-import type { MockedFunction } from 'vitest'
-import { describe, it } from 'vitest'
+import type { MockInstance, MockedFunction } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { combineHarnesses } from './combineHarnesses'
 import type {
   CombinedDeps,
   ExtractDeps,
@@ -84,6 +85,84 @@ describe('shared harness types', () => {
     expectTypeOf<Result>().toHaveProperty('alpha')
     expectTypeOf<Result>().toHaveProperty('beta')
     expectTypeOf<Result>().toHaveProperty('gamma')
+  })
+})
+
+describe('object dependency typing', () => {
+  const createTestStore = () => {
+    const cancelled: string[] = []
+    return {
+      list: (): string[] => [],
+      cancel: (id: string) => {
+        cancelled.push(id)
+      },
+      createdAt: new Date('2024-01-01T00:00:00.000Z'),
+    }
+  }
+
+  const setupStore = async () => ({ store: createTestStore() })
+
+  it('types object dependency methods as Mock', async () => {
+    const setup = combineHarnesses(setupStore)
+    await using harness = await setup()
+
+    expectTypeOf(harness.store.list).toEqualTypeOf<
+      (() => string[]) & MockInstance<() => string[]>
+    >()
+    expectTypeOf(harness.store.cancel).toEqualTypeOf<
+      ((id: string) => void) & MockInstance<(id: string) => void>
+    >()
+    expectTypeOf(harness.store.createdAt).toEqualTypeOf<Date>()
+  })
+
+  it('preserves generic signatures of object dependency methods', async () => {
+    const setupGeneric = async () => ({
+      store: {
+        runWithLoader: async <T>(args: {
+          description: string
+          run: (runArgs: { signal: string }) => Promise<T>
+        }): Promise<T> => args.run({ signal: 'original' }),
+      },
+    })
+    const setup = combineHarnesses(setupGeneric)
+    await using harness = await setup()
+
+    harness.store.runWithLoader.mockImplementation(async (args) =>
+      args.run({ signal: 'override' })
+    )
+    const result = await harness.store.runWithLoader({
+      description: 'test',
+      run: async () => 123,
+    })
+
+    expectTypeOf(result).toEqualTypeOf<number>()
+    expect(result).toBe(123)
+  })
+
+  it('accepts deep-partial object dependency overrides and rejects unknown nested keys', async () => {
+    const setup = combineHarnesses(setupStore)
+
+    await using harness = await setup({
+      store: {
+        list: () => ['override'],
+      },
+    })
+    expect(harness.store.list()).toEqual(['override'])
+
+    await using rejected = await setup({
+      store: {
+        // @ts-expect-error unknown nested key must be rejected
+        missing: () => {},
+      },
+    })
+    expect(Object.keys(rejected.store)).toContain('list')
+  })
+
+  it('types harness.store.list.mock', async () => {
+    const setup = combineHarnesses(setupStore)
+    await using harness = await setup()
+
+    expect(harness.store.list.mock.calls).toEqual([])
   })
 })
 

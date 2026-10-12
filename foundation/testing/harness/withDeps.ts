@@ -51,13 +51,21 @@ function assertDepsParam(fn: AnyFunction): void {
  *
  * Asserts at runtime that the deps parameter is named "deps".
  *
+ * The single-parameter overload rejects functions that declare a second
+ * parameter. Without this, a factory whose first parameter is dep-shaped
+ * (e.g. `createX(runtimeDeps, deps = defaultDeps)`) would match the
+ * single-parameter overload whenever the harness deps object also satisfies
+ * `runtimeDeps`.
+ *
  * Simplifies the deps type so that function-typed entries are reduced
  * to their call signature — static properties like `defaultDeps` are
  * stripped. This lets harnesses pass plain functions where the
  * original deps type expects `typeof someFunction`.
  */
-export function withDeps<D, R>(
-  fn: (deps: D) => R,
+export function withDeps<D, R, F extends AnyFunction>(
+  fn: F &
+    ((deps: D) => R) &
+    (2 extends Parameters<F>['length'] ? never : unknown),
   deps: NoInfer<StripUserDepsMark<SimplifyDeps<D>>>
 ): () => R
 

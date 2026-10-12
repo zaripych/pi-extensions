@@ -33,6 +33,21 @@ describe('two-parameter functions (params, deps)', () => {
     expectTypeOf(numResult).toEqualTypeOf<number>()
     expectTypeOf(strResult).toEqualTypeOf<string>()
   })
+
+  it('binds deps when the deps object also satisfies the params type', () => {
+    function createGreeter(
+      runtimeDeps: { prefix: () => string },
+      deps = { suffix: () => '!' }
+    ) {
+      return (name: string) => `${runtimeDeps.prefix()} ${name}${deps.suffix()}`
+    }
+    const deps = { prefix: () => 'Hello', suffix: () => '?' }
+
+    const bound = withDeps(createGreeter, deps)
+
+    expectTypeOf(bound).parameters.toEqualTypeOf<[{ prefix: () => string }]>()
+    expect(bound(deps)('World')).toBe('Hello World?')
+  })
 })
 
 describe('single-parameter functions (deps)', () => {

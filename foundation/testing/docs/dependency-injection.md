@@ -546,6 +546,61 @@ Consumers go from three dep keys (`sendMessage`, `notifyByEmail`, `notifyBySms`)
 to two (`sendMessage`, `createNotifier`), and shared parameters are supplied
 once at factory creation rather than repeated per call.
 
+## Factories for runtime-bound dependencies
+
+When a function's dependencies cannot live in `defaultDeps` because they are
+bound to a runtime, use a factory: `createX(runtimeDeps, deps =
+defaultDeps)`. The first parameter carries the runtime-bound dependencies;
+the second stays the static test-only `deps` seam. The factory returns the
+named keys that consume them.
+
+```ts
+export function createNotifier(
+  runtimeDeps: { notify: (message: string) => void },
+  deps = defaultDeps
+) {
+  return {
+    notifyOrderPlaced: async (params: { orderId: string }) => {
+      await deps.persist({ id: params.orderId })
+      runtimeDeps.notify(`Order ${params.orderId} placed`)
+    },
+  }
+}
+
+createNotifier.defaultDeps = defaultDeps
+```
+
+Rules for factories:
+
+- **Return shape = dep shape.** A factory returns exactly the keys consumers
+  put into their own deps, so `{ ...createX(deps) }` is always a valid deps
+  object and harnesses compose as `{ ...deps, ...createX(deps) }`. The
+  returned values follow the same rules as any harness result (see
+  [testing-harness.md](testing-harness.md)): flat functions are per-key
+  seams, object dependencies are returned under a single key, and keys
+  must be unique across composed harnesses.
+- **Self-calls go through the object dependency.** A method on a returned
+  object must call sibling methods through the returned object, not through an inner
+  closure variable, so a test that wraps a method with `.mockImplementation()`
+  also intercepts the factory's own internal calls:
+
+```ts
+export function createEvents(deps = defaultDeps) {
+  const events = {
+    log: [] as string[],
+    publish: (message: string) => {
+      events.log.push(message)
+    },
+    publishOrderPlaced: (orderId: string) =>
+      events.publish(`order:${orderId} placed`), // not a closure publish()
+  }
+  return { events }
+}
+```
+
+Wrapping `harness.events.publish` in a test also intercepts the call from
+`publishOrderPlaced`.
+
 ## Test harnesses
 
 For how to build composable test harnesses that inject mock deps into functions

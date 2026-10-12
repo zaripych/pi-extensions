@@ -267,3 +267,17 @@ it('uses inferTypesFrom.harnesses for types and explicit harness parameters for 
   expect(await harness.alpha()).toBe('configured before setupA')
   expect(harness.result.gamma()).toBe(false)
 })
+
+it('types object methods returned by the last configure function as mocks', async () => {
+  const setup = configureHarnesses(async () => {
+    const store: { list: () => string[] } = {
+      list: () => ['a', 'b'],
+    }
+    return { store }
+  })
+
+  await using harness = await setup()
+
+  harness.store.list.mockImplementation(() => ['override'])
+  expect(harness.store.list()).toEqual(['override'])
+})
