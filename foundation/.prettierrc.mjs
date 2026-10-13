@@ -9,7 +9,7 @@ export default {
   tabWidth: 2,
   semi: false,
   singleQuote: true,
-  proseWrap: 'preserve',
+  proseWrap: 'never',
   overrides: [
     {
       files: '*.(js|ts|mjs|mts|tsx)',

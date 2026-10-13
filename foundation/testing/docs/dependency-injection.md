@@ -2,64 +2,30 @@
 
 ## Precondition
 
-Do not introduce seams before you have a test or harness that needs them. You
-cannot know the right dependency boundaries until a test forces you to inject
-something.
+Do not introduce seams before you have a test or harness that needs them. You cannot know the right dependency boundaries until a test forces you to inject something.
 
-If an imported dependency already has a harness, that dependency is an
-established seam. Any module that calls it should include it in `defaultDeps` so
-the dependency's harness can be composed and its mocked effects propagate
-through higher-level tests. Without this, integration tests that replace the
-dependency through its harness will silently bypass the replacement in callers
-that imported it directly.
+If an imported dependency already has a harness, that dependency is an established seam. Any module that calls it should include it in `defaultDeps` so the dependency's harness can be composed and its mocked effects propagate through higher-level tests. Without this, integration tests that replace the dependency through its harness will silently bypass the replacement in callers that imported it directly.
 
-If an imported dependency does not have a harness and no current test needs to
-replace it, call it directly — no `defaultDeps`, no `deps` parameter. When a
-test later needs to replace that dependency, introduce the harness and the
-`defaultDeps` seam in the same change. Speculative seams based only on what
-_might_ need mocking lead to wrong abstractions and wasted harness work.
+If an imported dependency does not have a harness and no current test needs to replace it, call it directly — no `defaultDeps`, no `deps` parameter. When a test later needs to replace that dependency, introduce the harness and the `defaultDeps` seam in the same change. Speculative seams based only on what _might_ need mocking lead to wrong abstractions and wasted harness work.
 
 ## Overview
 
-Dependencies (database clients, external service clients, clocks, etc.) are
-injected via a second `deps` parameter with a module-level default. This gives
-tests a seam to replace real dependencies with mocks without sharing mutable
-state between tests.
+Dependencies (database clients, external service clients, clocks, etc.) are injected via a second `deps` parameter with a module-level default. This gives tests a seam to replace real dependencies with mocks without sharing mutable state between tests.
 
 ## Rules
 
-1. **`deps` is the second parameter**, after the business params. It always
-   receives `defaultDeps` as its default value.
-2. **Test-only seam.** Production code never passes custom deps. The `deps`
-   parameter exists exclusively for tests.
-3. **Justify every seam.** Each entry in `defaultDeps` must exist because tests
-   or harnesses need to replace it. An imported dependency with its own harness
-   is already justified and should be included in `defaultDeps` by callers so
-   harness composition works through higher-level tests. If no test or harness
-   replaces a dependency, it should not be a seam — call it directly or fold it
-   into another dep's default implementation. When a dep is justified, shape its
-   interface (params and return type) to what the consumer actually uses, not the
-   full API of the underlying implementation.
-4. **Not for polymorphic behavior in production.** Do not use `deps` to
-   implement feature flags, environment branching, or runtime strategy selection
-   in production code.
-5. **All-or-nothing.** Every `deps` property is required — no `Partial<Deps>`.
-   Callers must supply the full deps object or omit it entirely to get the
-   default. This prevents accidentally inheriting a real dependency in a test.
-6. **Entries are always functions** (sync or async). Never constants or direct
-   references to objects. This makes them compatible with `vi.fn()` and similar
-   test utilities.
-7. **`defaultDeps` is module-level, never exported.** The function or class
-   exposes it as a static property so tests can reference it without importing a
-   separate symbol.
-8. **Tests never spy on `defaultDeps`.** Tests inject a full mock deps object.
-   Spying on `defaultDeps` is an anti-pattern — it mutates shared module state
-   and leaks between tests if cleanup is missed.
+1. **Parameter placement.** `deps` is the second parameter when the function or constructor needs another parameter, and the only parameter otherwise. Its default value is always `defaultDeps`.
+2. **Test-only seam.** Production code never passes custom deps. The `deps` parameter exists exclusively for tests.
+3. **Justify every seam.** Each entry in `defaultDeps` must exist because tests or harnesses need to replace it. An imported dependency with its own harness is already justified and should be included in `defaultDeps` by callers so harness composition works through higher-level tests. If no test or harness replaces a dependency, it should not be a seam — call it directly or fold it into another dep's default implementation. When a dep is justified, shape its interface (params and return type) to what the consumer actually uses, not the full API of the underlying implementation.
+4. **Not for polymorphic behavior in production.** Do not use `deps` to implement feature flags, environment branching, or runtime strategy selection in production code.
+5. **All-or-nothing.** Every `deps` property is required — no `Partial<Deps>`. Callers must supply the full deps object or omit it entirely to get the default. This prevents accidentally inheriting a real dependency in a test.
+6. **`defaultDeps` entries are always functions** (sync or async), never constants or direct object references, so each entry can be replaced with `vi.fn()`. These functions may return objects. The function-only restriction applies to `defaultDeps` entries, not to factory or harness results, which may contain object dependencies.
+7. **`defaultDeps` is module-level, never exported.** The function or class exposes it as a static property so tests can reference it without importing a separate symbol.
+8. **Tests never spy on `defaultDeps`.** Tests inject a full mock deps object. Spying on `defaultDeps` is an anti-pattern — it mutates shared module state and leaks between tests if cleanup is missed.
 
 ## Functions (preferred)
 
-Functions with a static `defaultDeps` property are the preferred style over
-classes.
+Functions with a static `defaultDeps` property are the preferred style over classes.
 
 ```ts
 import database, { type DbClient } from '@/db'
@@ -132,6 +98,47 @@ export class TenantService {
 }
 ```
 
+## Factories for runtime-bound dependencies
+
+When a function's dependencies cannot live in `defaultDeps` because they are bound to a runtime, use a factory: `createX(runtimeDeps, deps = defaultDeps)`. The first parameter carries the runtime-bound dependencies; the second stays the static test-only `deps` seam. The factory returns the named keys that consume them.
+
+```ts
+export function createNotifier(
+  runtimeDeps: { notify: (message: string) => void },
+  deps = defaultDeps
+) {
+  return {
+    notifyOrderPlaced: async (params: { orderId: string }) => {
+      await deps.persist({ id: params.orderId })
+      runtimeDeps.notify(`Order ${params.orderId} placed`)
+    },
+  }
+}
+
+createNotifier.defaultDeps = defaultDeps
+```
+
+Rules for factories:
+
+- **Return shape = dep shape.** A factory returns exactly the keys consumers put into their own deps, so `{ ...createX(deps) }` is always a valid deps object and harnesses compose as `{ ...deps, ...createX(deps) }`. The returned values follow the same rules as any harness result (see [testing-harness.md](testing-harness.md)): flat functions are per-key seams, object dependencies are returned under a single key, and keys must be unique across composed harnesses.
+- **Self-calls go through the object dependency.** A method on a returned object must call sibling methods through the returned object, not through an inner closure variable, so a test that wraps a method with `.mockImplementation()` also intercepts the factory's own internal calls:
+
+```ts
+export function createEvents(deps = defaultDeps) {
+  const events = {
+    log: [] as string[],
+    publish: (message: string) => {
+      events.log.push(message)
+    },
+    publishOrderPlaced: (orderId: string) =>
+      events.publish(`order:${orderId} placed`), // not a closure publish()
+  }
+  return { events }
+}
+```
+
+Wrapping `harness.events.publish` in a test also intercepts the call from `publishOrderPlaced`.
+
 ## Anti-patterns
 
 ### ❌ Exporting `defaultDeps`
@@ -164,10 +171,7 @@ vi.spyOn(getTenantById.defaultDeps, 'db').mockReturnValue(mockDb)
 
 ### ❌ Turning deps into params, or params into deps
 
-Dependencies must be injected only as properties of `defaultDeps`. Do not turn a
-replaceable dependency into a normal parameter just to avoid adding it to
-`defaultDeps`. This makes call sites responsible for dependency wiring and
-breaks harness composition.
+Dependencies with a static production implementation belong in `defaultDeps` when a test or harness requires replacing them. Do not move these dependencies into normal parameters to avoid the dependency-injection pattern; this makes callers responsible for wiring and breaks harness composition. Runtime-bound dependencies instead follow the [factory pattern](#factories-for-runtime-bound-dependencies) described above: they enter through the first `runtimeDeps` parameter.
 
 ```ts
 // BAD — sendReceipt is a dependency disguised as a parameter
@@ -188,9 +192,7 @@ export async function checkout(params: { cartId: string }, deps = defaultDeps) {
 checkout.defaultDeps = defaultDeps
 ```
 
-Do not hide the same mistake by wrapping one dep inside a parameter callback. If
-the callback exists only to call another dependency, the underlying dependency
-belongs in the callee's `defaultDeps`.
+Do not hide the same mistake by wrapping one dep inside a parameter callback. If the callback exists only to call another dependency, the underlying dependency belongs in the callee's `defaultDeps`.
 
 ```ts
 const defaultDeps = { reserveInventory }
@@ -235,11 +237,7 @@ checkout.defaultDeps = checkoutDeps
 
 ### ❌ Stubs in `defaultDeps`
 
-Do not add placeholder functions to `defaultDeps` before the production behavior
-exists. A dependency seam should wrap real behavior that the function already
-uses and that tests need to replace. Empty stubs make tests pass against a fake
-future design instead of current behavior, and they turn `defaultDeps` into a
-TODO list rather than a description of real dependencies.
+Do not add placeholder functions to `defaultDeps` before the production behavior exists. A dependency seam should wrap real behavior that the function already uses and that tests need to replace. Empty stubs make tests pass against a fake future design instead of current behavior, and they turn `defaultDeps` into a TODO list rather than a description of real dependencies.
 
 ```ts
 // BAD — enqueueReceipt is only a placeholder, not implemented behavior
@@ -256,21 +254,16 @@ export async function checkout(params: CheckoutParams, deps = defaultDeps) {
 }
 ```
 
-Wait until `enqueueReceipt` has real production behavior, then introduce it as a
-dependency in the same change as the behavior that needs to replace it in tests.
+Wait until `enqueueReceipt` has real production behavior, then introduce it as a dependency in the same change as the behavior that needs to replace it in tests.
 
 ### ❌ Overriding types in `defaultDeps`
 
-Do not wrap a dependency in a lambda just to change its type signature. This
-creates two problems:
+Do not wrap a dependency in a lambda just to change its type signature. This creates two problems:
 
-- Every injection site must manually maintain a type annotation that duplicates
-  (or widens) the original.
-- If the overridden type is partially compatible with the original, invalid
-  types propagate into tests silently.
+- Every injection site must manually maintain a type annotation that duplicates (or widens) the original.
+- If the overridden type is partially compatible with the original, invalid types propagate into tests silently.
 
-Assign the dependency directly and let TypeScript infer the type from the
-source.
+Assign the dependency directly and let TypeScript infer the type from the source.
 
 ```ts
 import { databaseClient, type DbClient } from '@/db'
@@ -286,8 +279,7 @@ const defaultDeps = {
 }
 ```
 
-The one exception is when a dependency's API surface is too large (e.g. many
-overloads) and you want to narrow it to a specific signature:
+The one exception is when a dependency's API surface is too large (e.g. many overloads) and you want to narrow it to a specific signature:
 
 ```ts
 import { execFile } from 'node:child_process'
@@ -307,11 +299,7 @@ const defaultDeps = {
 
 ### ❌ Fat dependency interface
 
-Both sides of a dep's interface — parameters and return type — should be shaped
-to what the consumer actually uses. A fat interface forces harnesses to
-construct unnecessary data, obscures what the function depends on, and violates
-the Law of Demeter by coupling the consumer to structures it doesn't need to
-know about.
+Both sides of a dep's interface — parameters and return type — should be shaped to what the consumer actually uses. A fat interface forces harnesses to construct unnecessary data, obscures what the function depends on, and violates the Law of Demeter by coupling the consumer to structures it doesn't need to know about.
 
 **Fat output** — dep returns more than the consumer uses:
 
@@ -337,8 +325,7 @@ const defaultDeps = {
 }
 ```
 
-**Fat input** — consumer passes a large object when the dep only needs part of
-it:
+**Fat input** — consumer passes a large object when the dep only needs part of it:
 
 ```ts
 // BAD — dep receives the full tenant, but only needs the bucket name
@@ -358,15 +345,9 @@ const defaultDeps = {
 
 ### ❌ Unnecessary seam on a thin wrapper
 
-Don't add `defaultDeps` to a function that is itself a thin wrapper with no
-business logic — one whose entire body is a single SDK or library call. The
-`deps` pattern exists so tests can replace external calls without changing
-behaviour. When the function _is_ that external call, the seam belongs one level
-up in the consumer, not inside the wrapper.
+Don't add `defaultDeps` to a function that is itself a thin wrapper with no business logic — one whose entire body is a single SDK or library call. The `deps` pattern exists so tests can replace external calls without changing behaviour. When the function _is_ that external call, the seam belongs one level up in the consumer, not inside the wrapper.
 
-The right move is to export the function as a plain async function and let the
-consumer (an orchestrator, a service, etc.) list it as a dep. The consumer's
-harness then mocks it with `vi.fn()` directly.
+The right move is to export the function as a plain async function and let the consumer (an orchestrator, a service, etc.) list it as a dep. The consumer's harness then mocks it with `vi.fn()` directly.
 
 ```ts
 // BAD — sendEmail wraps a single transporter.sendMail call.
@@ -401,19 +382,13 @@ export async function sendEmail(params: {
 Signals that a function is a thin wrapper and should not have `defaultDeps`:
 
 - The body is a single `await client.send(...)` or equivalent SDK call.
-- Every entry in `defaultDeps` exactly mirrors the function's own parameter
-  shape.
-- The function has no conditional logic, transformation, or error handling of
-  its own.
-- No test ever needs to assert on the internal dep — only on whether the
-  function itself was called.
+- Every entry in `defaultDeps` exactly mirrors the function's own parameter shape.
+- The function has no conditional logic, transformation, or error handling of its own.
+- No test ever needs to assert on the internal dep — only on whether the function itself was called.
 
 ### ❌ Unnecessary intermediary seam
 
-Don't elevate a function to a dep just because it sits between the consumer and
-an external call. If the intermediary is pure or deterministic and no test
-benefits from mocking it, call it directly and fold it into the dep that wraps
-the actual external dependency.
+Don't elevate a function to a dep just because it sits between the consumer and an external call. If the intermediary is pure or deterministic and no test benefits from mocking it, call it directly and fold it into the dep that wraps the actual external dependency.
 
 ```ts
 // BAD — resolveEndpoint is pure, no test needs to mock it,
@@ -445,13 +420,13 @@ const prodDeps = isStaging ? stagingDeps : productionDeps
 doSomething(params, prodDeps)
 ```
 
+## Semantic dependencies
+
+A semantic dependency is a domain-named key in `defaultDeps` backed by a more generic function. For example, `initializeRecord: saveRecord` and `finalizeRecord: saveRecord` name two operations implemented by `saveRecord`. Introduce these keys only when a concrete test needs to replace those operations independently; different lifecycle stages alone do not justify them. This is a specific exception to AGENTS.md's no-renaming rule: the imported symbol retains its original name, while each semantic key names the operation it implements. Preserve those semantic names throughout the implementation, consumers, and harnesses. See [domain-level seams](testing-harness.md#expose-domain-level-seams-in-defaultdeps-not-in-harnesses) for harness composition examples.
+
 ## Consolidating sibling functions into a factory
 
-When multiple exported functions share the same `defaultDeps`, accept
-overlapping parameters, and follow the same internal pattern, they are
-candidates for consolidation into a single factory function. The factory
-captures the shared parameters and deps once, and returns an object whose
-methods supply only the varying parts.
+When multiple exported functions share the same `defaultDeps`, accept overlapping parameters, and follow the same internal pattern, they are candidates for consolidation into a single factory function. The factory captures the shared parameters and deps once, and returns an object whose methods supply only the varying parts.
 
 Signals to look for:
 
@@ -497,11 +472,7 @@ export async function notifyBySms(
 notifyBySms.defaultDeps = defaultDeps
 ```
 
-Problems: `userId` and `locale` are threaded through every call site. The
-send-and-format pattern is duplicated. Consumers spread
-`notifyByEmail.defaultDeps` plus both functions into their own `defaultDeps`,
-creating three dep keys for what is conceptually one capability. Every harness
-must mock all three.
+Problems: `userId` and `locale` are threaded through every call site. The send-and-format pattern is duplicated. Consumers spread `notifyByEmail.defaultDeps` plus both functions into their own `defaultDeps`, creating three dep keys for what is conceptually one capability. Every harness must mock all three.
 
 After — a factory captures shared params, methods supply only the varying part:
 
@@ -542,66 +513,8 @@ export function createNotifier(
 createNotifier.defaultDeps = defaultDeps
 ```
 
-Consumers go from three dep keys (`sendMessage`, `notifyByEmail`, `notifyBySms`)
-to two (`sendMessage`, `createNotifier`), and shared parameters are supplied
-once at factory creation rather than repeated per call.
-
-## Factories for runtime-bound dependencies
-
-When a function's dependencies cannot live in `defaultDeps` because they are
-bound to a runtime, use a factory: `createX(runtimeDeps, deps =
-defaultDeps)`. The first parameter carries the runtime-bound dependencies;
-the second stays the static test-only `deps` seam. The factory returns the
-named keys that consume them.
-
-```ts
-export function createNotifier(
-  runtimeDeps: { notify: (message: string) => void },
-  deps = defaultDeps
-) {
-  return {
-    notifyOrderPlaced: async (params: { orderId: string }) => {
-      await deps.persist({ id: params.orderId })
-      runtimeDeps.notify(`Order ${params.orderId} placed`)
-    },
-  }
-}
-
-createNotifier.defaultDeps = defaultDeps
-```
-
-Rules for factories:
-
-- **Return shape = dep shape.** A factory returns exactly the keys consumers
-  put into their own deps, so `{ ...createX(deps) }` is always a valid deps
-  object and harnesses compose as `{ ...deps, ...createX(deps) }`. The
-  returned values follow the same rules as any harness result (see
-  [testing-harness.md](testing-harness.md)): flat functions are per-key
-  seams, object dependencies are returned under a single key, and keys
-  must be unique across composed harnesses.
-- **Self-calls go through the object dependency.** A method on a returned
-  object must call sibling methods through the returned object, not through an inner
-  closure variable, so a test that wraps a method with `.mockImplementation()`
-  also intercepts the factory's own internal calls:
-
-```ts
-export function createEvents(deps = defaultDeps) {
-  const events = {
-    log: [] as string[],
-    publish: (message: string) => {
-      events.log.push(message)
-    },
-    publishOrderPlaced: (orderId: string) =>
-      events.publish(`order:${orderId} placed`), // not a closure publish()
-  }
-  return { events }
-}
-```
-
-Wrapping `harness.events.publish` in a test also intercepts the call from
-`publishOrderPlaced`.
+Consumers go from three dep keys (`sendMessage`, `notifyByEmail`, `notifyBySms`) to two (`sendMessage`, `createNotifier`), and shared parameters are supplied once at factory creation rather than repeated per call.
 
 ## Test harnesses
 
-For how to build composable test harnesses that inject mock deps into functions
-and classes, see [testing-harness.md](testing-harness.md).
+For how to build composable test harnesses that inject mock deps into functions and classes, see [testing-harness.md](testing-harness.md).
