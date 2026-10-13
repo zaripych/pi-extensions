@@ -10,11 +10,9 @@ const defaultDeps = {
   createDbClient,
 }
 
-type Deps = typeof defaultDeps
-
 export async function getUserById(
   params: { id: string },
-  deps: Deps = defaultDeps
+  deps = defaultDeps
 ): Promise<User | null> {
   const db = deps.createDbClient()
   const rows = await db.query<User>('SELECT * FROM users WHERE id = $1', [
@@ -26,7 +24,7 @@ getUserById.defaultDeps = defaultDeps
 
 export function listUsers(
   params: { limit: number },
-  deps: Deps = defaultDeps
+  deps = defaultDeps
 ): Promise<User[]> {
   const db = deps.createDbClient()
   return db.query<User>('SELECT * FROM users LIMIT $1', [params.limit])

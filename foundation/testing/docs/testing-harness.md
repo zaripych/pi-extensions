@@ -17,9 +17,8 @@ For how to write tests using these harnesses, read [writing-tests.md](writing-te
 
 1. **Look up existing harnesses** for the dependencies used by the module.
 2. **Compose existing harnesses** — don't re-mock what another harness already provides.
-3. **Bind sibling dependencies** from the same module with the pass-through pattern.
-4. **Create harnesses for imported dependencies that don't have one yet** — do this before writing your harness or tests. Dependencies defined inline in `defaultDeps` (e.g. direct SDK calls) are mocked in the harness itself.
-5. **Search for other places that manually mock the same dependency** and replace them with the new harness. This promotes composability and reduces duplication.
+3. **Create harnesses for imported dependencies that don't have one yet** — do this before writing your harness or tests. Dependencies defined inline in `defaultDeps` (e.g. direct SDK calls) are mocked in the harness itself.
+4. **Search for other places that manually mock the same dependency** and replace them with the new harness. This promotes composability and reduces duplication.
 
 ## Dependency flow
 
@@ -275,97 +274,6 @@ const deps = configureDependencies(
 
 **Rule:** Use `configureDependencies` when a setup function defines default dependency implementations. If it only forwards dependencies from composed harnesses or binds functions with `withDeps`, use the received `userDeps` directly; do not pass an empty configurator to `configureDependencies`. When all dependency types can be inferred from `userDeps`, `inferTypesFrom` is unnecessary. Otherwise, supply `inferTypesFrom` with `defaultDeps` and/or `harnesses` to provide the missing type information.
 
-### Sibling dependency (pass-through)
-
-When a module exports multiple functions and one of them is used as a dependency by the others in the same module, the shared function is a **sibling dependency**. It has its own sub-deps but is not a primary export — the primary exports call it through `deps`.
-
-This pattern is justified when the primary exports do meaningful work beyond forwarding arguments — assembling parameters, chaining operations on the result, or handling errors differently.
-
-```ts
-// sendEmail.ts
-import { resolveAddress } from './resolveAddress'
-import { deliver } from './deliver'
-
-const defaultDeps = { resolveAddress, deliver }
-
-async function sendEmail(
-  params: { to: string; body: string },
-  deps: typeof defaultDeps = defaultDeps
-) {
-  const address = await deps.resolveAddress({ email: params.to })
-  return deps.deliver({ address, body: params.body })
-}
-
-sendEmail.defaultDeps = defaultDeps
-
-const sendEmailDeps = { ...defaultDeps, sendEmail }
-
-export async function sendWelcomeEmail(
-  params: { user: User },
-  deps: typeof sendEmailDeps = sendEmailDeps
-) {
-  const body = buildWelcomeBody({ name: params.user.name })
-  const result = await deps.sendEmail({ to: params.user.email, body })
-  await deps.deliver({
-    address: params.user.managerEmail,
-    body: `${params.user.name} was welcomed`,
-  })
-  return result
-}
-
-sendWelcomeEmail.defaultDeps = sendEmailDeps
-
-export async function sendResetEmail(
-  params: { user: User; token: string },
-  deps: typeof sendEmailDeps = sendEmailDeps
-) {
-  const body = buildResetBody({ token: params.token })
-  return deps.sendEmail({ to: params.user.email, body })
-}
-
-sendResetEmail.defaultDeps = sendEmailDeps
-```
-
-The harness mocks the sibling's sub-deps and then mocks the sibling itself as a **pass-through** — calling the real function with the harness's mocked deps. Access the original through `defaultDeps` of a primary export rather than importing it directly.
-
-```ts
-// sendEmail.harness.ts
-import { sendWelcomeEmail, sendResetEmail } from './sendEmail'
-import { setupResolveAddress } from './resolveAddress.harness'
-import { withDeps } from '@/tests/harness/withDeps'
-import { configureHarnesses } from '@/tests/harness/configureHarnesses'
-import { configureDependencies } from '@/tests/harness/configureDependencies'
-
-export const setupSendEmail = configureHarnesses(
-  setupResolveAddress,
-  async (userDeps) => {
-    const deps = await configureDependencies(
-      {
-        inferTypesFrom: { defaultDeps: sendWelcomeEmail.defaultDeps },
-        userDeps,
-      },
-      {
-        deliver: () => ({ messageId: 'msg-1' }),
-        sendEmail: (params) =>
-          sendWelcomeEmail.defaultDeps.sendEmail(params, deps),
-      }
-    )
-
-    return {
-      ...deps,
-      sendWelcomeEmail: withDeps(sendWelcomeEmail, deps),
-      sendResetEmail: withDeps(sendResetEmail, deps),
-    }
-  }
-)
-```
-
-- The `sendEmail` mock delegates to the real function but injects the harness's `deps`, so `resolveAddress` and `deliver` are test doubles.
-- The primary exports are bound with `withDeps` as usual.
-- The sibling is **not** returned via `withDeps` — tests don't call it directly; it's only reached through the primary exports' `deps`.
-
-**This pattern only applies within a single module.** When a dep comes from a different module and has its own harness, compose the harness instead of writing a pass-through. The composed harness provides the dep fully wired with mocked sub-deps — no `mockImplementation` override needed.
-
 ### Composed leaf dependency
 
 When a dependency has no `defaultDeps` but needs internal structure (e.g., a factory that wraps an inner mock), use `configureHarnesses` to derive one part from another:
@@ -489,10 +397,7 @@ const defaultDeps = {
   finalizeRecord: saveRecord,
 }
 
-export async function processRecord(
-  params: ProcessParams,
-  deps: Deps = defaultDeps
-) {
+export async function processRecord(params: ProcessParams, deps = defaultDeps) {
   const record = await deps.initializeRecord({
     id: params.id,
     record: { status: 'started' },
@@ -546,8 +451,6 @@ const saveRecord = (params) => {
 }
 ```
 
-````
-
 ### Derive types from `defaultDeps`, not from dependency packages
 
 Harnesses and specs should derive types through `ReturnType<typeof fn.defaultDeps.someKey>` instead of importing types from the underlying dependency package. This keeps harnesses decoupled — if the dep signature changes, types update automatically.
@@ -560,7 +463,7 @@ const mock = async (): Promise<SomeCommandOutput> => fromPartial({ ... });
 // GOOD — derived from the dep's own type
 type DepResult = ReturnType<typeof myFunction.defaultDeps.someKey>;
 const mock = async (): DepResult => fromPartial({ ... });
-````
+```
 
 ## Working example
 

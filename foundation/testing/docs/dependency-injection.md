@@ -14,13 +14,13 @@ Dependencies (database clients, external service clients, clocks, etc.) are inje
 
 ## Rules
 
-1. **Parameter placement.** `deps` is the second parameter when the function or constructor needs another parameter, and the only parameter otherwise. Its default value is always `defaultDeps`.
-2. **Test-only seam.** Production code never passes custom deps. The `deps` parameter exists exclusively for tests.
+1. **Parameter placement.** `deps` is the second parameter when the function or constructor needs another parameter, and the only parameter otherwise. Exported functions and constructors default `deps` to `defaultDeps`; non-exported sibling functions with injectable dependencies require `deps` with no default value.
+2. **Test-only seam.** Production callers use `defaultDeps`; tests inject replacements. Within a module, callers forward their received `deps` unchanged to non-exported sibling functions that require it.
 3. **Justify every seam.** Each entry in `defaultDeps` must exist because tests or harnesses need to replace it. An imported dependency with its own harness is already justified and should be included in `defaultDeps` by callers so harness composition works through higher-level tests. If no test or harness replaces a dependency, it should not be a seam — call it directly or fold it into another dep's default implementation. When a dep is justified, shape its interface (params and return type) to what the consumer actually uses, not the full API of the underlying implementation.
 4. **Not for polymorphic behavior in production.** Do not use `deps` to implement feature flags, environment branching, or runtime strategy selection in production code.
-5. **All-or-nothing.** Every `deps` property is required — no `Partial<Deps>`. Callers must supply the full deps object or omit it entirely to get the default. This prevents accidentally inheriting a real dependency in a test.
+5. **All-or-nothing.** Every `deps` property is required — no `Partial<Deps>`. When supplying `deps`, callers must provide the full object. Implementation code may only forward its received `deps` object unchanged to non-exported siblings—no spreading, merging, overriding entries, or wrapping dependency functions at call sites. Only tests and harnesses may inject replacements. This prevents accidentally inheriting a real dependency in a test.
 6. **`defaultDeps` entries are always functions** (sync or async), never constants or direct object references, so each entry can be replaced with `vi.fn()`. These functions may return objects. The function-only restriction applies to `defaultDeps` entries, not to factory or harness results, which may contain object dependencies.
-7. **`defaultDeps` is module-level, never exported.** The function or class exposes it as a static property so tests can reference it without importing a separate symbol.
+7. **`defaultDeps` is module-level, never exported.** Exported functions and classes expose it as a static `defaultDeps` property so tests can reference it without importing a separate symbol.
 8. **Tests never spy on `defaultDeps`.** Tests inject a full mock deps object. Spying on `defaultDeps` is an anti-pattern — it mutates shared module state and leaks between tests if cleanup is missed.
 
 ## Functions (preferred)
@@ -167,6 +167,22 @@ const defaultDeps = { db: database }
 ```ts
 // BAD — mutates shared module state, leaks between tests
 vi.spyOn(getTenantById.defaultDeps, 'db').mockReturnValue(mockDb)
+```
+
+### ❌ Redundant `deps` type annotations
+
+When `deps` defaults to `defaultDeps`, omit its type annotation; TypeScript infers the type from the default value.
+
+```ts
+// BAD — the type is not needed, it's noise
+type Deps = typeof defaultDeps
+export async function checkout(deps: Deps = defaultDeps) {
+  ...
+}
+// GOOD
+export async function checkout(deps = defaultDeps) {
+  ...
+}
 ```
 
 ### ❌ Turning deps into params, or params into deps
@@ -342,6 +358,55 @@ const defaultDeps = {
   },
 }
 ```
+
+### ❌ Separate dependency bags for non-exported siblings
+
+When non-exported sibling functions in the same module need injectable dependencies, use the module’s `defaultDeps` rather than defining separate dependency bags for those functions.
+
+These dependency-bearing functions are implementation details of the exported function and must not themselves appear in `defaultDeps`. Non-exported functions without injectable dependencies may appear in `defaultDeps`.
+
+These functions do not have their own harness. Declare their `deps` parameter as `deps: typeof defaultDeps`, with no default value, and pass the caller’s received `deps` object unchanged. TypeScript rejects calls that omit this required parameter.
+
+```ts
+const defaultDeps = {
+  saveOrder,
+  sendSqsMessage,
+}
+
+// BAD — sendSqsMessage is mixed into business params
+async function enqueueReceipt(params: {
+  orderId: string
+  sendSqsMessage: (typeof defaultDeps)['sendSqsMessage']
+}) {}
+
+export async function checkout(params: CheckoutParams, deps = defaultDeps) {
+  const order = await deps.saveOrder(params)
+  await enqueueReceipt({
+    orderId: order.id,
+    sendSqsMessage: deps.sendSqsMessage,
+  })
+}
+
+// GOOD — enqueueReceipt receives the caller's deps separately
+async function enqueueReceipt(
+  params: {
+    orderId: string
+  },
+  deps: typeof defaultDeps
+) {}
+
+export async function checkout(params: CheckoutParams, deps = defaultDeps) {
+  const order = await deps.saveOrder(params)
+  await enqueueReceipt(
+    {
+      orderId: order.id,
+    },
+    deps
+  )
+}
+```
+
+If a concrete test needs to replace `enqueueReceipt` independently, extract it to a separate module and compose its harness. Give it its own `defaultDeps` only when tests or harnesses need to replace its sub-dependencies, subject to the thin-wrapper rule below.
 
 ### ❌ Unnecessary seam on a thin wrapper
 

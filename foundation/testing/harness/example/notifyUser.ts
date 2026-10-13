@@ -6,8 +6,6 @@ const defaultDeps = {
   createMailer,
 }
 
-type Deps = typeof defaultDeps
-
 export type NotificationResult = {
   user: User
   sent: boolean
@@ -15,7 +13,7 @@ export type NotificationResult = {
 
 export async function notifyUser(
   params: { userId: string; subject: string; body: string },
-  deps: Deps = defaultDeps
+  deps = defaultDeps
 ): Promise<NotificationResult> {
   const user = await deps.getUserById({ id: params.userId })
   if (!user) {
